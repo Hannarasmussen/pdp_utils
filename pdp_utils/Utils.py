@@ -1,4 +1,6 @@
 import numpy as np
+import random
+
 from collections import namedtuple
 
 
@@ -37,7 +39,7 @@ def load_problem(filename):
         f.close()
 
     Cargo = np.array(C, dtype=np.double)[:, 1:]
-    D = np.array(D, dtype=np.int)
+    D = np.array(D, dtype=int)
 
     TravelTime = np.zeros((num_vehicles + 1, num_nodes + 1, num_nodes + 1))
     TravelCost = np.zeros((num_vehicles + 1, num_nodes + 1, num_nodes + 1))
@@ -49,7 +51,7 @@ def load_problem(filename):
     StartingTime = np.zeros(num_vehicles)
     FirstTravelTime = np.zeros((num_vehicles, num_nodes))
     FirstTravelCost = np.zeros((num_vehicles, num_nodes))
-    A = np.array(A, dtype=np.int)
+    A = np.array(A, dtype=int)
     for i in range(num_vehicles):
         VesselCapacity[i] = A[i, 3]
         StartingTime[i] = A[i, 2]
@@ -61,13 +63,13 @@ def load_problem(filename):
     VesselCargo = np.zeros((num_vehicles, num_calls + 1))
     B = np.array(B, dtype=object)
     for i in range(num_vehicles):
-        VesselCargo[i, np.array(B[i][1:], dtype=np.int)] = 1
+        VesselCargo[i, np.array(B[i][1:], dtype=int)] = 1
     VesselCargo = VesselCargo[:, 1:]
 
     LoadingTime = np.zeros((num_vehicles + 1, num_calls + 1))
     UnloadingTime = np.zeros((num_vehicles + 1, num_calls + 1))
     PortCost = np.zeros((num_vehicles + 1, num_calls + 1))
-    E = np.array(E, dtype=np.int)
+    E = np.array(E, dtype=int)
     for i in range(num_vehicles * num_calls):
         LoadingTime[E[i, 0], E[i, 1]] = E[i, 2]
         UnloadingTime[E[i, 0], E[i, 1]] = E[i, 4]
@@ -220,3 +222,120 @@ def cost_function(Solution, problem):
 
     TotalCost = NotTransportCost + sum(RouteTravelCost) + sum(CostInPorts)
     return TotalCost
+
+def initial_solution(problem):
+    num_vehicles = problem['n_vehicles']
+    sol = [0] * num_vehicles
+    for i in range(problem['n_calls']):
+        sol.append(i+1)
+        sol.append(i+1)
+    return sol
+
+def generate_random(problem):
+    """
+    Genererer en tilfeldig løsning for pickup and delivery-problemet.
+    """
+
+    solution = initial_solution(problem)
+    dummy = [0] 
+    assigned_calls = set()  
+
+    num_calls = problem['n_calls']
+    Cargo = problem['Cargo'][:, 2]
+    VesselCargo = problem['VesselCargo']
+    VesselCapacity = problem['VesselCapacity']
+
+    remaining_capacity = VesselCapacity.copy()
+
+    vehicles = list(range(len(VesselCapacity)))
+
+    calls = list(range(num_calls))
+    np.random.shuffle(calls) 
+
+    for vehicle in vehicles:
+        vehicle_calls = []
+
+        for call in calls:
+            if call in assigned_calls:
+                continue
+      
+            call_size = Cargo[call]
+
+            if VesselCargo[vehicle, call] == 1 and remaining_capacity[vehicle] >= call_size:
+                    vehicle_calls.append(call + 1) 
+                    vehicle_calls.append(call + 1)  
+                    assigned_calls.add(call + 1)
+                    remaining_capacity[vehicle] -= call_size
+        
+        if vehicle_calls:  
+            np.random.shuffle(vehicle_calls) 
+            solution.extend(vehicle_calls)
+
+    for call in calls:
+        if call not in assigned_calls:
+            dummy.append(call + 1 )
+            dummy.append(call + 1)
+
+    if dummy:
+        solution.extend(dummy)
+        
+    return solution
+
+def find_best_random(problem):
+
+    best_solution = generate_random(problem)
+    best_cost = cost_function(best_solution, problem)
+
+    for _ in range(1000):
+        current = generate_random(problem)
+
+        feasible, _ = feasibility_check(current, problem)
+        if feasible:
+            current_cost = cost_function(current, problem)
+            if current_cost < best_cost:
+                best_solution = current
+                best_cost = current_cost
+
+
+    return best_solution
+
+#def relocate(solution, problem):
+    """ Move a random call from one vehicle to another and return the new solution """
+    new_solution = solution.copy()
+    
+    num_calls = len(solution)
+    num_vehicles = problem['n_vehicles']
+    
+    call_to_move = random.randint(0, num_calls - 1)
+    
+    valid_vehicles = np.where(problem['VesselCargo'][:, call_to_move] == 1)[0]
+    
+    if len(valid_vehicles) > 0:
+        new_vehicle = random.choice(valid_vehicles) + 1  
+        new_solution[call_to_move] = new_vehicle  
+
+    return new_solution
+
+
+#def local_search(problem, initial_solution, max_iterations=100):
+    
+    best_solution = initial_solution
+    best_cost = cost_function(best_solution, problem)
+
+    for _ in range(max_iterations):
+        new_solution = relocate(best_solution, problem)
+        
+        feasible, _ = feasibility_check(new_solution, problem)
+        if not feasible:
+            continue 
+        
+        new_cost = cost_function(new_solution, problem)
+        
+        if new_cost < best_cost:
+            best_solution = new_solution
+            best_cost = new_cost
+    
+    return best_solution, best_cost
+
+
+
