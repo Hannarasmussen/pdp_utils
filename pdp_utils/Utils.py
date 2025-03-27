@@ -247,6 +247,89 @@ def combine_vehicles(vehicles):
         solution.pop()
     return solution
 
+def check_vehicle_feasibility(vehicle_plan, vehicle_idx, problem):
+    """
+    Check if a vehicle route is feasible without checking the entire solution.
+    
+    Args:
+        vehicle_plan: List of calls for this vehicle (without the trailing 0)
+        vehicle_idx: Index of the vehicle in the problem
+        problem: Problem data
+        
+    Returns:
+        bool: True if the vehicle route is feasible, False otherwise
+    """
+    if not vehicle_plan:
+        return True
+    
+    Cargo = problem['Cargo']
+    TravelTime = problem['TravelTime']
+    FirstTravelTime = problem['FirstTravelTime']
+    VesselCapacity = problem['VesselCapacity']
+    LoadingTime = problem['LoadingTime']
+    UnloadingTime = problem['UnloadingTime']
+    VesselCargo = problem['VesselCargo']
+    
+    # Convert to 0-indexed call numbers
+    currentVPlan = [c - 1 for c in vehicle_plan]
+    
+    NoDoubleCallOnVehicle = len(currentVPlan)
+    
+    if NoDoubleCallOnVehicle > 0:
+        # Check if the vehicle can transport all calls
+        if not np.all(VesselCargo[vehicle_idx, currentVPlan]):
+            return False
+        
+        # Check capacity constraints
+        LoadSize = 0
+        currentTime = 0
+        sortRout = np.sort(currentVPlan, kind='mergesort')
+        I = np.argsort(currentVPlan, kind='mergesort')
+        Indx = np.argsort(I, kind='mergesort')
+        
+        LoadSize -= Cargo[sortRout, 2]  # Negative for delivery (unloading)
+        LoadSize[::2] = Cargo[sortRout[::2], 2]  # Positive for pickup (loading)
+        LoadSize = LoadSize[Indx]
+        
+        # Check capacity constraints
+        if np.any(VesselCapacity[vehicle_idx] - np.cumsum(LoadSize) < 0):
+            return False
+        
+        # Check time window constraints
+        Timewindows = np.zeros((2, NoDoubleCallOnVehicle))
+        Timewindows[0] = Cargo[sortRout, 6]  # Delivery start time
+        Timewindows[0, ::2] = Cargo[sortRout[::2], 4]  # Pickup start time
+        Timewindows[1] = Cargo[sortRout, 7]  # Delivery end time
+        Timewindows[1, ::2] = Cargo[sortRout[::2], 5]  # Pickup end time
+        
+        Timewindows = Timewindows[:, Indx]
+        
+        PortIndex = Cargo[sortRout, 1].astype(int)  # Delivery port
+        PortIndex[::2] = Cargo[sortRout[::2], 0]  # Pickup port
+        PortIndex = PortIndex[Indx] - 1  # 0-indexed
+        
+        LU_Time = UnloadingTime[vehicle_idx, sortRout]  # Unloading time
+        LU_Time[::2] = LoadingTime[vehicle_idx, sortRout[::2]]  # Loading time
+        LU_Time = LU_Time[Indx]
+        
+        if len(PortIndex) > 1:
+            Diag = TravelTime[vehicle_idx, PortIndex[:-1], PortIndex[1:]]
+            RouteTravelTime = Diag.flatten()
+        else:
+            RouteTravelTime = []
+        
+        FirstVisitTime = FirstTravelTime[vehicle_idx, int(Cargo[currentVPlan[0], 0] - 1)]
+        RouteTravelTime = np.hstack((FirstVisitTime, RouteTravelTime))
+        
+        ArriveTime = np.zeros(NoDoubleCallOnVehicle)
+        for j in range(NoDoubleCallOnVehicle):
+            ArriveTime[j] = np.max((currentTime + RouteTravelTime[j], Timewindows[0, j]))
+            if ArriveTime[j] > Timewindows[1, j]:
+                return False
+            currentTime = ArriveTime[j] + LU_Time[j]
+    
+    return True
+
 def dummy_reinsert(solution, problem):
     """
     Takes a random call from the dummy vehicle and tries to insert it
@@ -261,21 +344,16 @@ def dummy_reinsert(solution, problem):
     """
 
     #print(f"Solution before dummy reinsert: {solution}")
-    # Create a copy of the solution to modify
     new_solution = solution.copy()
-    
-    # Split the solution into vehicle routes
+
     vehicles = split_into_vehicles(new_solution)
     
-    # Last vehicle is the dummy vehicle
     dummy_vehicle = vehicles[-1]
     actual_vehicles = vehicles[:-1]
     
-    # If dummy vehicle has no calls, return the original solution
     if not dummy_vehicle:
         return solution
     
-    # Get all call pairs in dummy vehicle
     call_pairs = {}
     for call in dummy_vehicle:
         call_id = abs(call)
@@ -284,40 +362,32 @@ def dummy_reinsert(solution, problem):
         else:
             call_pairs[call_id] = [call]
     
-    # Select a random call pair
     if not call_pairs:
         return solution
     
     random_call_id = random.choice(list(call_pairs.keys()))
     call_pair = call_pairs[random_call_id]
     
-    # Remove the call pair from dummy vehicle
     for call in call_pair:
         dummy_vehicle.remove(call)
     
-    # Try to insert the calls into each vehicle and position
     best_cost = float('inf')
     best_vehicles = None
     
     for v_idx, vehicle in enumerate(actual_vehicles):
-        # Check if vehicle can handle this call
         if not np.all(problem['VesselCargo'][v_idx, [c-1 for c in call_pair]]):
             continue
         
-        # Try all possible insertion positions for the pickup
         for pickup_pos in range(len(vehicle) + 1):
             pickup_vehicle = vehicle.copy()
             pickup_vehicle.insert(pickup_pos, call_pair[0])
             
-            # If pickup insertion is feasible, try all delivery positions
             if check_vehicle_feasibility(pickup_vehicle, v_idx, problem):
                 for delivery_pos in range(pickup_pos + 1, len(pickup_vehicle) + 1):
                     test_vehicle = pickup_vehicle.copy()
                     test_vehicle.insert(delivery_pos, call_pair[0])
                     
-                    # Check if delivery insertion is feasible
                     if check_vehicle_feasibility(test_vehicle, v_idx, problem):
-                        # Calculate new cost
                         test_vehicles = actual_vehicles.copy()
                         test_vehicles[v_idx] = test_vehicle
                         test_vehicles.append(dummy_vehicle)
@@ -325,11 +395,9 @@ def dummy_reinsert(solution, problem):
                         
                         test_cost = cost_function(test_solution, problem)
                         
-                        # If this is the best solution so far, save it
                         if test_cost < best_cost:
                             best_cost = test_cost
                             best_vehicles = test_vehicles.copy()
-                            # Stop at first better solution
                             break
             
             # If we found a better solution, stop searching
@@ -369,6 +437,7 @@ def swap_calls(solution, problem):
 
     num_calls = problem['n_calls']
     
+    #Kan jeg finne en bedre måte å velge hvilke som skal swapes?
     call_one = random.choice(range(1, num_calls + 1))
     #print(f"Call one: {call_one}")
     call_two = random.choice(range(1, num_calls + 1))
@@ -408,7 +477,7 @@ def swap_calls(solution, problem):
     #print(f"Solution after swap: {new_solution}")
     return new_solution
 
-def shuffle_vehicle(solution):
+def shuffle_vehicle(solution, problem):
 
     #print(f"Solution before shuffle: {solution}")
     new_solution = solution.copy()
@@ -425,6 +494,289 @@ def shuffle_vehicle(solution):
 
     #print(f"Solution after shuffle: {new_solution}")
     return new_solution
+
+def one_reinsert(solution, problem):
+    """
+    Gjør en liten endring i løsningen ved å flytte en tilfeldig valgt forespørsel fra ett kjøretøy til et annet.
+    """
+    new_solution = copy.deepcopy(solution)
+
+    vehicles = split_into_vehicles(new_solution)
+    
+    non_empty_vehicles = [v for v in vehicles if v] #tomme lister blir en boolsk verdi i python
+    if not non_empty_vehicles:
+        return new_solution 
+        
+    #velg tilfeldig bil
+    from_vehicle = random.choice(non_empty_vehicles)
+
+    chosen_call = random.choice([c for c in from_vehicle if c != 0])
+
+    if from_vehicle.count(chosen_call) != 2:
+
+        raise ValueError(f"Feil: chosen_call {chosen_call} finnes ikke to ganger i from_vehicle {from_vehicle}")
+    
+    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
+
+    to_vehicle = random.choice(vehicles)
+
+    if not to_vehicle:  # Hvis kjøretøyet er tomt, legg inn på start
+        to_vehicle.append(chosen_call)
+        to_vehicle.append(chosen_call)
+    else:
+        insert_index1 = random.randint(0, len(to_vehicle))
+        insert_index2 = random.randint(0, len(to_vehicle))
+        while insert_index1 == insert_index2:  # Forsikre oss om at indeksene er forskjellige
+            insert_index2 = random.randint(0, len(to_vehicle))
+
+        to_vehicle.insert(min(insert_index1, insert_index2), chosen_call)
+        to_vehicle.insert(max(insert_index1, insert_index2), chosen_call)
+
+    new_solution = combine_vehicles(vehicles)
+
+    assert new_solution.count(chosen_call) == 2, f"Feil: {chosen_call} finnes {new_solution.count(chosen_call)} ganger!"
+    return new_solution
+
+#hvordan skal jeg lagre beste løsning og i tillegg til å noen ganger akseptere en dårligere løsning?
+
+def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
+    """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
+    max_iterations = 10000
+    escape_condition = 100
+
+    #s <- initial_solution
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+
+    #solution s_best <- s
+    best_solution = initial_solution.copy()
+    best_cost = cost_function(best_solution, problem)
+
+    iterations_since_best = 0
+    iteration = 0
+
+    operator_scores = [1.0, 1.0, 1.0, 1.0] #er dette beste måten å lagre operator scores på?
+    normalize_scores(operator_scores)
+
+    operators = [shuffle_vehicle,
+                swap_calls, 
+                dummy_reinsert,
+                one_reinsert
+                ]
+
+    while iteration < max_iterations:
+        if iterations_since_best > escape_condition:
+            print(f"Iteration {iteration}: Escape triggered")
+            #apply an escape algorithm
+            current_solution = escape(
+                current_solution,
+                problem,
+                iterations_since_best
+                )
+            
+            current_cost = cost_function(
+                current_solution,
+                problem
+                )
+            
+            iterations_since_best = 0
+
+         #s_marked <- s
+         #Trenger jeg incumbent eller bør jeg bruke current_solution?
+        incumbent = current_solution.copy()
+        incumbent_cost = current_cost
+       
+        #select a heuristic, from the set of heuristics based on selection parameters
+        #apply the heuristic to the s_marked
+        selected_operator = select_heuristic(
+                operator_scores,
+                iteration,
+                max_iterations
+                )
+        
+        assert 0 <= selected_operator < len(operators), f"Invalid operator index: {selected_operator}"
+
+        print(f"Iteration {iteration}: Selected operator {selected_operator}")
+
+        new_solution = operators[selected_operator](incumbent, problem)
+        new_cost = cost_function(new_solution, problem)
+
+        feasible, _ = feasibility_check(new_solution, problem)
+
+        if feasible:
+        #if the cost of the new solution is better than the cost of the best solution
+            if new_cost < best_cost:
+                #s_best <- s_marked
+                best_solution = new_solution
+                best_cost = new_cost
+                operator_scores[selected_operator] += 1
+                normalize_scores(operator_scores)
+                iterations_since_best = 0
+                print(f"New best solution found with cost {best_cost}")
+            
+
+        #if accept(s_marked, s) then
+        accepted = accept_solution(
+            new_cost,
+            incumbent_cost, 
+            iteration, max_iterations
+            )
+        
+        print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+
+        if accepted:
+            #s <- s_marked
+            current_solution = new_solution
+            current_cost = new_cost
+
+        #update selecion parameters and iterate iterations_since_best
+        iterations_since_best += 1  
+        iteration += 1
+
+    return best_solution
+
+def escape1(current_solution, problem):
+
+    escape_solution = current_solution.copy()
+    
+    # Denne kan jeg tweeke litt mer på??
+    num = random.randint(2, 5)
+    for _ in range(num):
+
+        escape_method = random.choice([
+            shuffle_vehicle,
+            swap_calls,
+            dummy_reinsert
+        ])
+        
+        escape_solution = escape_method(escape_solution, problem)
+    
+    return escape_solution
+
+def escape(current_solution, problem, iterations_since_best):
+    """
+    Mer intelligent unnsluppe-metode
+    
+    Args:
+        current_solution: Nåværende løsning
+        problem: Probleminstans
+        iterations_since_best: Antall iterasjoner siden siste forbedring
+    
+    Returns:
+        Ny løsning etter unnslupping
+    """
+    escape_solution = current_solution.copy()
+    
+    # Øk dramatikken i unnslupping basert på hvor lenge siden siste forbedring
+    escape_intensity = min(iterations_since_best / 50, 1.0)
+    
+    # Velg operatorer med økende intensitet
+    escape_methods = [
+        shuffle_vehicle,
+        swap_calls,
+        dummy_reinsert
+    ]
+    
+    # Antall ganger vi kjører unnsluppe-operatorer øker med intensitet
+    num_escapes = int(2 + escape_intensity * 5)
+    
+    for _ in range(num_escapes):
+        # Vekt operatorene basert på intensitet
+        weights = [
+            1.0, 
+            1.0 + escape_intensity, 
+            1.0 + 2 * escape_intensity
+        ]
+        
+        escape_method = random.choices(escape_methods, weights=weights)[0]
+        escape_solution = escape_method(escape_solution, problem)
+    
+    return escape_solution
+
+def select_heuristic1(operator_scores):
+    """Select a heuristic based on their scores using roulette wheel selection"""
+    indices = list(range(len(operator_scores))) 
+    return random.choices(indices, weights=operator_scores, k=1)[0]
+
+def select_heuristic(operator_scores, iteration, max_iterations):
+    """
+    Mer sofistikert heuristikkvalg med adaptive parametere
+    
+    Args:
+        operator_scores: Nåværende operator scores
+        iteration: Nåværende iterasjon
+        max_iterations: Maksimalt antall iterasjoner
+    
+    Returns:
+        Valgt operator indeks
+    """
+    # Implementer eksplorasjon vs utnyttelse
+    exploration_rate = 1.0 - (iteration / max_iterations)
+    
+    if random.random() < exploration_rate:
+        return random.randint(0, len(operator_scores) - 1)
+    else:
+        # Bruk roulette wheel, men med mer dynamisk vekting
+        indices = list(range(len(operator_scores)))
+        
+        # Legg til en liten tilfeldighetsfaktor
+        weighted_scores = [
+            score * (1 + random.uniform(-0.1, 0.1)) 
+            for score in operator_scores
+        ]
+        
+        return random.choices(indices, weights=weighted_scores, k=1)[0]
+
+def normalize_scores(operator_scores):
+    """Normalize operator scores to prevent extreme values"""
+    min_score = 0.1  # Minimum allowed score
+    max_score = 10.0  # Maximum allowed score
+    
+    for idx in range(len(operator_scores)):
+        operator_scores[idx] = max(min_score, min(max_score, operator_scores[idx]))
+
+def accept_solution1(new_cost, current_cost, temperature=1.0):
+    """
+    Acceptance criterion based on simulated annealing
+    Accept better solutions always, worse solutions with decreasing probability
+    """
+    if new_cost <= current_cost:
+        return True
+    else:
+        # Accept worse solutions with a probability that decreases over time
+        delta = (current_cost - new_cost) / current_cost
+        probability = np.exp(delta / temperature)
+        return random.random() < probability
+
+def accept_solution(new_cost, current_cost, iteration, max_iterations):
+    """
+    Dynamisk temperatur basert på algoritmefremdrift
+    
+    Args:
+        new_cost: Kostnad for ny løsning
+        current_cost: Kostnad for nåværende løsning
+        iteration: Nåværende iterasjon
+        max_iterations: Maksimalt antall iterasjoner
+    
+    Returns:
+        Boolean om løsningen aksepteres
+    """
+    if new_cost <= current_cost:
+        return True
+    
+    # Dynamisk temperatur som synker mot slutten av algoritmen
+    temperature = 1.0 * (1 - iteration / max_iterations) ** 2
+    
+    # Mer kompleks akseptlogikk
+    delta = (current_cost - new_cost) / max(current_cost, 1e-10)
+    
+    # Legger til en ikke-lineær akseptsannsynlighet
+    probability = np.exp(delta / (temperature + 1e-10))
+    
+    return random.random() < probability
+
+
+
 
 def simulated_annealing(problem):
     """ Simulated Annealing for Pickup and Delivery Problem """
@@ -710,62 +1062,6 @@ def local_search(problem):
 
     print(f"Total rejected solutions: {rejected_solutions}")
     return best_solution
-
-def one_reinsert(solution, problem):
-    """
-    Gjør en liten endring i løsningen ved å flytte en tilfeldig valgt forespørsel fra ett kjøretøy til et annet.
-    """
-    new_solution = copy.deepcopy(solution)
-
-    vehicles = []
-    current_vehicle = []
-    for call in new_solution:
-        if call == 0:
-            vehicles.append(current_vehicle)
-            current_vehicle = []
-        else:
-            current_vehicle.append(call)     
-    vehicles.append(current_vehicle)
-
-    non_empty_vehicles = [v for v in vehicles if v] #tomme lister blir en boolsk verdi i python
-    if not non_empty_vehicles:
-        return new_solution 
-        
-    #velg tilfeldig bil
-    from_vehicle = random.choice(non_empty_vehicles)
-
-    chosen_call = random.choice([c for c in from_vehicle if c != 0])
-
-    if from_vehicle.count(chosen_call) != 2:
-        raise ValueError(f"Feil: chosen_call {chosen_call} finnes ikke to ganger i from_vehicle {from_vehicle}")
-    
-    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
-
-    to_vehicle = random.choice(vehicles)
-
-    if not to_vehicle:  # Hvis kjøretøyet er tomt, legg inn på start
-        to_vehicle.append(chosen_call)
-        to_vehicle.append(chosen_call)
-    else:
-        insert_index1 = random.randint(0, len(to_vehicle))
-        insert_index2 = random.randint(0, len(to_vehicle))
-        while insert_index1 == insert_index2:  # Forsikre oss om at indeksene er forskjellige
-            insert_index2 = random.randint(0, len(to_vehicle))
-
-        to_vehicle.insert(min(insert_index1, insert_index2), chosen_call)
-        to_vehicle.insert(max(insert_index1, insert_index2), chosen_call)
-
-    new_solution = []
-    for vehicle in vehicles:
-        new_solution.extend(vehicle)
-        new_solution.append(0)
-        
-    # Fjern siste 0 hvis det er flere enn nødvendig
-    if new_solution[-1] == 0:
-        new_solution.pop()
-
-    assert new_solution.count(chosen_call) == 2, f"Feil: {chosen_call} finnes {new_solution.count(chosen_call)} ganger!"
-    return new_solution
 
 def simulated_annealing_1(problem):
     """ Simulated Annealing for Pickup and Delivery Problem """

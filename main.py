@@ -5,12 +5,12 @@ from tabulate import tabulate
 
 
 def main():
-    test_instances = [#'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt', 
+    test_instances = ['pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt', 
                       #'pdp_utils/data/pd_problem/Call_18_Vehicle_5.txt',
                       #'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
                       #'pdp_utils/data/pd_problem/Call_80_Vehicle_20.txt',
                       #'pdp_utils/data/pd_problem/Call_130_Vehicle_40.txt',
-                      'pdp_utils/data/pd_problem/Call_300_Vehicle_90.txt'
+                      #'pdp_utils/data/pd_problem/Call_300_Vehicle_90.txt'
                       ]
 
     num_runs = 10
@@ -28,7 +28,8 @@ def main():
         #solution = local_search(problem)
         #solution = simulated_annealing_1(problem)
         #solution = simulated_annealing(problem)
-        solution = simulated_annealing_weight(problem)
+        #solution = simulated_annealing_weight(problem)
+        solution = General_Adaptive_Metahuristics_Framework(problem, start_solution)
 
 
         cost = cost_function(solution, problem)
