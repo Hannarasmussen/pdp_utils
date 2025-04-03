@@ -537,12 +537,11 @@ def one_reinsert(solution, problem):
     assert new_solution.count(chosen_call) == 2, f"Feil: {chosen_call} finnes {new_solution.count(chosen_call)} ganger!"
     return new_solution
 
-#hvordan skal jeg lagre beste løsning og i tillegg til å noen ganger akseptere en dårligere løsning?
-
 def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
     """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
     max_iterations = 10000
     escape_condition = 100
+
 
     #s <- initial_solution
     current_solution = initial_solution.copy()
@@ -555,25 +554,34 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
     iterations_since_best = 0
     iteration = 0
 
-    operator_scores = [1.0, 1.0, 1.0, 1.0] #er dette beste måten å lagre operator scores på?
+
+    
+    operator_scores = [1.0 for _ in range(5)] #er dette beste måten å lagre operator scores på?
     normalize_scores(operator_scores)
 
-    operators = [shuffle_vehicle,
+    operators = [
+              shuffle_vehicle,
                 swap_calls, 
                 dummy_reinsert,
-                one_reinsert
+                one_reinsert,
+                greedy_reinsert,
                 ]
 
     while iteration < max_iterations:
         if iterations_since_best > escape_condition:
             print(f"Iteration {iteration}: Escape triggered")
             #apply an escape algorithm
-            current_solution = escape(
+            
+            while True:
+                escape_solution = escape(
                 current_solution,
                 problem,
                 iterations_since_best
                 )
-            
+                feasible, _ = feasibility_check(escape_solution, problem)
+                if feasible:
+                    break
+            current_solution = escape_solution
             current_cost = cost_function(
                 current_solution,
                 problem
@@ -601,7 +609,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         new_solution = operators[selected_operator](incumbent, problem)
         new_cost = cost_function(new_solution, problem)
 
-        feasible, _ = feasibility_check(new_solution, problem)
+        feasible, c = feasibility_check(new_solution, problem)
 
         if feasible:
         #if the cost of the new solution is better than the cost of the best solution
@@ -609,6 +617,8 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
                 #s_best <- s_marked
                 best_solution = new_solution
                 best_cost = new_cost
+                current_solution = new_solution
+                current_cost = new_cost
                 operator_scores[selected_operator] += 1
                 normalize_scores(operator_scores)
                 iterations_since_best = 0
@@ -617,9 +627,11 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
 
         #if accept(s_marked, s) then
         accepted = accept_solution(
+            new_solution,
             new_cost,
             incumbent_cost, 
-            iteration, max_iterations
+            problem,
+            1.0,  # Temperature parameter
             )
         
         print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
@@ -634,24 +646,6 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         iteration += 1
 
     return best_solution
-
-def escape1(current_solution, problem):
-
-    escape_solution = current_solution.copy()
-    
-    # Denne kan jeg tweeke litt mer på??
-    num = random.randint(2, 5)
-    for _ in range(num):
-
-        escape_method = random.choice([
-            shuffle_vehicle,
-            swap_calls,
-            dummy_reinsert
-        ])
-        
-        escape_solution = escape_method(escape_solution, problem)
-    
-    return escape_solution
 
 def escape(current_solution, problem, iterations_since_best):
     """
@@ -674,7 +668,9 @@ def escape(current_solution, problem, iterations_since_best):
     escape_methods = [
         shuffle_vehicle,
         swap_calls,
-        dummy_reinsert
+        dummy_reinsert,
+        one_reinsert,
+        greedy_reinsert,
     ]
     
     # Antall ganger vi kjører unnsluppe-operatorer øker med intensitet
@@ -685,18 +681,15 @@ def escape(current_solution, problem, iterations_since_best):
         weights = [
             1.0, 
             1.0 + escape_intensity, 
-            1.0 + 2 * escape_intensity
+            1.0 + 2 * escape_intensity,
+            1.0 + 3 * escape_intensity,
+            1.0 + 4 * escape_intensity   
         ]
         
-        escape_method = random.choices(escape_methods, weights=weights)[0]
+        escape_method = random.choices(escape_methods, weights)[0]
         escape_solution = escape_method(escape_solution, problem)
     
     return escape_solution
-
-def select_heuristic1(operator_scores):
-    """Select a heuristic based on their scores using roulette wheel selection"""
-    indices = list(range(len(operator_scores))) 
-    return random.choices(indices, weights=operator_scores, k=1)[0]
 
 def select_heuristic(operator_scores, iteration, max_iterations):
     """
@@ -735,20 +728,177 @@ def normalize_scores(operator_scores):
     for idx in range(len(operator_scores)):
         operator_scores[idx] = max(min_score, min(max_score, operator_scores[idx]))
 
-def accept_solution1(new_cost, current_cost, temperature=1.0):
-    """
-    Acceptance criterion based on simulated annealing
-    Accept better solutions always, worse solutions with decreasing probability
-    """
-    if new_cost <= current_cost:
-        return True
-    else:
-        # Accept worse solutions with a probability that decreases over time
-        delta = (current_cost - new_cost) / current_cost
-        probability = np.exp(delta / temperature)
-        return random.random() < probability
+def accept_solution(new_solution, new_cost, incumbent_cost, problem, T):
+    """ Accept function for Simulated Annealing """
 
-def accept_solution(new_cost, current_cost, iteration, max_iterations):
+    delta_E = new_cost - incumbent_cost
+
+    feasible, _ = feasibility_check(new_solution, problem)
+
+    if feasible:
+        if delta_E < 0:
+            return True 
+        elif random.random() < math.exp(-delta_E / T):
+            return True  
+    return False
+
+def greedy_reinsert1(solution, problem):
+
+    #split solution into vehicles
+    #velg random vehicle
+    #velg random call fra vehicle
+    #velg random compatible vehicle for call
+
+
+    #check for optimal placement of the call in the new compatible vehicle
+    #for i in range(len(new_vehicle)):
+        #for j in range(i, len(new_vehicle)):
+
+            #if feasible:
+                #insert pickup in the new vehicle in place i
+                #insert delivery in the new vehicle in place j 
+                # if new solution is better than old solution:
+                    #return new solution
+
+    
+    #remove call from the old vehicle
+    #reinsert call in the new vehicle
+
+    #return new solution
+    #print(f"Solution before greedy reinsert: {solution}")
+
+    new_solution = solution.copy()
+    vehicles = split_into_vehicles(new_solution)
+    from_vehicle = random.choice(vehicles)
+    chosen_call = random.choice([c for c in from_vehicle if c != 0])
+    if from_vehicle.count(chosen_call) != 2:
+        raise ValueError(f"Feil: chosen_call {chosen_call} finnes ikke to ganger i from_vehicle {from_vehicle}")
+    
+    #remove call from the old vehicle
+    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
+
+
+    to_vehicle = random.choice(vehicles)
+
+    #check if the call is compatible with the new vehicle
+    if not np.all(problem['VesselCargo'][to_vehicle, [c-1 for c in chosen_call]]):
+        print(f"Call {chosen_call} is not compatible with vehicle {to_vehicle}")
+        return solution
+    #if to_vehicle is empty, insert the call in the first position
+    if not to_vehicle:  # Hvis kjøretøyet er tomt, legg inn på start
+        to_vehicle.append(chosen_call)
+        to_vehicle.append(chosen_call)
+        
+    else:
+        for i in range(len(to_vehicle)):
+            for j in range(i, len(to_vehicle)):
+                if check_vehicle_feasibility(to_vehicle, i, problem):
+                    to_vehicle.insert(i, chosen_call)
+                    to_vehicle.insert(j, chosen_call)
+                    combine_vehicles(vehicles)
+
+                    if cost_function(new_solution, problem) < cost_function(solution, problem):
+                        
+                        return new_solution     
+
+def greedy_reinsert(solution, problem):
+    """
+    Implements a greedy reinsert operator for improving a given solution.
+    
+    Steps:
+    1. Split the solution into separate vehicle routes.
+    2. Choose a random vehicle and a random call from that vehicle.
+    3. Select a random compatible vehicle for the call.
+    4. Find the optimal placement of the call within the new vehicle.
+    5. If the new solution is better than the old one, apply the change.
+    
+    Args:
+        solution (list of lists): The current solution where each vehicle has its assigned calls.
+        problem (dict): Problem data including cargo constraints and feasibility conditions.
+
+    Returns:
+        list of lists: A new solution with the greedy reinsert applied.
+    """
+    
+    print(f"Solution before greedy reinsert: {solution}")
+    new_solution = solution.copy()
+    vehicles = split_into_vehicles(new_solution)
+    dummy_vehicle = len(vehicles) - 1
+    
+    # Choose a random vehicle and a random call
+    from_vehicle = random.choice([v for v in vehicles if len(v) > 2])
+    chosen_call = random.choice([c for c in from_vehicle if c != 0])
+    
+    if from_vehicle.count(chosen_call) != 2:
+        raise ValueError(f"Error: chosen_call {chosen_call} does not appear twice in from_vehicle {from_vehicle}")
+
+    # Remove the chosen call from the original vehicle
+    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
+
+    #Select a random compatible vehicle
+    print(problem["VesselCargo"], problem["n_calls"])
+    compatible_vehicles = [v for v in vehicles[:dummy_vehicle] if np.all(problem['VesselCargo'][vehicles.index(v), [chosen_call-1]])]+[dummy_vehicle]
+    if not compatible_vehicles:
+        print(f"No compatible vehicles found for call {chosen_call}. Reverting.")
+        return solution
+    
+    #to_vehicle = random.choice(compatible_vehicles)
+    to_vehicle = random.choice(vehicles[:dummy_vehicle])
+
+    # Try to find the best insertion points for pickup and delivery
+    best_insertion = None
+    best_cost = float('inf')
+
+    for i in range(len(to_vehicle)):  
+        for j in range(i, len(to_vehicle)):  
+            temp_vehicle = to_vehicle[:i] + [chosen_call] + to_vehicle[i:j] + [chosen_call] + to_vehicle[j:]
+            print(f"Trying insertion at {i} and {j}: {temp_vehicle}")
+
+            if vehicles.index(to_vehicle) == len(vehicles) - 1 or check_vehicle_feasibility(temp_vehicle, vehicles.index(to_vehicle), problem):
+                new_solution_temp = [v if v != to_vehicle else temp_vehicle for v in vehicles]
+                new_solution_temp = combine_vehicles(new_solution_temp)
+                print(f"New solution temp: {new_solution_temp}")
+                new_cost = cost_function(new_solution_temp, problem)
+
+                if new_cost < best_cost:
+                    best_cost = new_cost
+                    best_insertion = (i, j)
+
+    # Apply the best insertion found
+    if best_insertion:
+        i, j = best_insertion
+        to_vehicle.insert(i, chosen_call)
+        to_vehicle.insert(j, chosen_call)
+        combine_vehicles(vehicles)
+
+        if cost_function(new_solution, problem) < cost_function(solution, problem):
+            print(f"New solution found with greedy reinsert with cost {cost_function(new_solution, problem)}")
+            return new_solution  # Return improved solution
+    print(f"No better solution found after greedy reinsert.")
+    return solution  # No improvement found, return original solution
+
+
+
+
+# gammelt
+def escape1(current_solution, problem):
+
+    escape_solution = current_solution.copy()
+    
+    # Denne kan jeg tweeke litt mer på??
+    num = random.randint(2, 5)
+    for _ in range(num):
+
+        escape_method = random.choice([
+            shuffle_vehicle,
+            swap_calls,
+            dummy_reinsert
+        ])
+        
+        escape_solution = escape_method(escape_solution, problem)
+    
+    return escape_solution
+def accept_solution2(new_cost, current_cost, iteration, max_iterations):
     """
     Dynamisk temperatur basert på algoritmefremdrift
     
@@ -774,10 +924,22 @@ def accept_solution(new_cost, current_cost, iteration, max_iterations):
     probability = np.exp(delta / (temperature + 1e-10))
     
     return random.random() < probability
-
-
-
-
+def accept_solution1(new_cost, current_cost, temperature=1.0):
+    """
+    Acceptance criterion based on simulated annealing
+    Accept better solutions always, worse solutions with decreasing probability
+    """
+    if new_cost <= current_cost:
+        return True
+    else:
+        # Accept worse solutions with a probability that decreases over time
+        delta = (current_cost - new_cost) / current_cost
+        probability = np.exp(delta / temperature)
+        return random.random() < probability
+def select_heuristic1(operator_scores):
+    """Select a heuristic based on their scores using roulette wheel selection"""
+    indices = list(range(len(operator_scores))) 
+    return random.choices(indices, weights=operator_scores, k=1)[0]
 def simulated_annealing(problem):
     """ Simulated Annealing for Pickup and Delivery Problem """
 
@@ -870,7 +1032,6 @@ def simulated_annealing(problem):
         T = alpha * T
 
     return best_solution
-
 def simulated_annealing_weight(problem):
     """ Simulated Annealing for Pickup and Delivery Problem with Adaptive Operator Selection """
 
@@ -952,7 +1113,6 @@ def simulated_annealing_weight(problem):
         T = alpha * T  
 
     return best_solution
-
 def generate_random(problem):
     """
     Genererer en tilfeldig løsning for pickup and delivery-problemet.
@@ -1020,7 +1180,6 @@ def generate_random(problem):
         new_solution.extend(dummy)
         
     return new_solution
-
 def find_best_random(problem):
 
     best_solution = generate_random(problem)
@@ -1038,7 +1197,6 @@ def find_best_random(problem):
 
 
     return best_solution
-
 def local_search(problem):
     best_solution = initial_solution(problem) #starter med en løsning
     best_cost = cost_function(best_solution, problem) #lagrer best cost 
@@ -1062,7 +1220,6 @@ def local_search(problem):
 
     print(f"Total rejected solutions: {rejected_solutions}")
     return best_solution
-
 def simulated_annealing_1(problem):
     """ Simulated Annealing for Pickup and Delivery Problem """
 
@@ -1136,3 +1293,162 @@ def simulated_annealing_1(problem):
         T = alpha * T
 
     return best_solution
+
+
+
+#hvordan skal jeg lagre beste løsning og i tillegg til å noen ganger akseptere en dårligere løsning?
+
+
+def General_Adaptive_Metahuristics_Framework1(problem, initial_solution):
+    """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
+
+    best_placements = {}
+
+    max_iterations = 10000
+    escape_condition = 100
+    update_frequency = 100
+
+    #s <- initial_solution
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+
+    #solution s_best <- s
+    best_solution = initial_solution.copy()
+    best_cost = cost_function(best_solution, problem)
+
+    iterations_since_best = 0
+    iterations_since_escape = 0
+    # skal jeg ha med noe som skiller på bedring og bedring med escape?
+    iterations_since_escape_best = 0
+    iteration = 0
+
+    operators = [#shuffle_vehicle,
+                #swap_calls, 
+                # dummy_reinsert,
+                # one_reinsert,
+                #best_placement_operator
+                greedy_reinsert
+                ]
+    num_operators = len(operators)
+
+    operator_scores = [1.0] * num_operators
+    operator_improvements = [0] * num_operators
+    operator_probabilities = [1/num_operators] * num_operators
+
+    normalize_scores(operator_scores)
+
+    while iteration < max_iterations:
+        if iterations_since_escape > escape_condition:
+            print(f"Iteration {iteration}: Escape triggered")
+            #apply an escape algorithm
+            current_solution = escape(
+                current_solution,
+                problem,
+                iterations_since_best
+                )
+            
+            current_cost = cost_function(
+                current_solution,
+                problem
+                )
+            
+        #må sjekke om det er en forbedring og kun oppdatere iterations since best da,
+        #men trenger kanskje en annen måling siden jeg også skal vite hvor lenge siden jeg fikk en bra løsning
+            
+            iterations_since_escape = 0 # er vel ikke sikkert at det blir en forbedring
+
+            #Kan jeg ha med denne eller blir det sabotasje av rammeverket og escape?
+            # kommer det senere så jeg bare skal gjøre iterations since best helt tilslutt?
+            if current_cost < best_cost:
+                best_solution = current_solution
+                best_cost = current_cost
+                iterations_since_best = 0
+                print(f"New best solution found with cost {best_cost}")
+
+        #s_marked <- s
+        #Trenger jeg incumbent eller bør jeg bruke current_solution?
+        incumbent = current_solution.copy()
+        incumbent_cost = current_cost
+
+    
+        #select a heuristic, from the set of heuristics based on selection parameters
+        #apply the heuristic to the s_marked
+        selected_operator = select_heuristic(
+                operator_scores,
+                iteration,
+                max_iterations
+                )
+        
+        assert 0 <= selected_operator < len(operators), f"Invalid operator index: {selected_operator}"
+
+        print(f"Iteration {iteration}: Selected operator {selected_operator}")
+
+        new_solution = operators[selected_operator](incumbent, problem)
+        new_cost = cost_function(new_solution, problem)
+
+        feasible, _ = feasibility_check(new_solution, problem)
+
+        if feasible:
+        #if the cost of the new solution is better than the cost of the best solution
+            if new_cost < best_cost:
+                #s_best <- s_marked
+                best_solution = new_solution
+                best_cost = new_cost
+                #jeg bør lage et mer detaljert poengsystem for å se hvilke operatorer som er best
+                #Hvis de gir meg en bedre løsning så bør de få mer poeng 4
+                #hvis det er drastisk bedre løsning 5
+                #hvis de gir meg en original løsning bør de få litt poeng 2
+                #samme beste løsning som før 1
+                operator_scores[selected_operator] += 1
+                normalize_scores(operator_scores)
+                iterations_since_best = 0
+                print(f"New best solution found with cost {best_cost}")
+            
+        # kan jeg bruke min simulated annealing her i steden for å lage en ny funksjon?
+        #if accept(s_marked, s) then
+        accepted = accept_solution(
+            new_solution,
+            new_cost,
+            incumbent_cost, 
+            problem,
+            1.0
+            )
+        
+        print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+
+        # if accepted:
+        #     #s <- s_marked
+        #     current_solution = new_solution
+        #     current_cost = new_cost
+
+        #update selecion parameters and iterate iterations_since_best
+        iterations_since_best += 1  
+        iteration += 1
+
+        if iteration % update_frequency == 0:
+            update_operator_probabilities(operator_improvements=operator_improvements,
+                                        operator_probabilities=operator_probabilities,
+                                        num_operators=num_operators)
+            
+            operator_improvements = [0] * num_operators  # Nullstill forbedringstellere
+            print(f"Updated operator probabilities: {operator_probabilities}")
+
+        print(f"Best solution:{best_solution} found with cost {best_cost}")
+    return best_solution
+
+
+def update_operator_probabilities(operator_improvements, operator_probabilities, num_operators):
+    total_improvements = sum(operator_improvements)
+    if total_improvements > 0:
+        for i in range(num_operators):
+            operator_probabilities[i] = operator_improvements[i] / total_improvements
+    else:
+        operator_probabilities[:] = [1/num_operators] * num_operators
+
+    # def normalize_scores(operator_scores):
+    # """Normalize operator scores to prevent extreme values"""
+    # min_score = 0.1  # Minimum allowed score
+    # max_score = 10.0  # Maximum allowed score
+
+    # for idx in range(len(operator_scores)):
+    #     operator_scores[idx] = max(min_score, min(max_score, operator_scores[idx]))

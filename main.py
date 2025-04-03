@@ -29,12 +29,12 @@ def main():
         #solution = simulated_annealing_1(problem)
         #solution = simulated_annealing(problem)
         #solution = simulated_annealing_weight(problem)
-        solution = General_Adaptive_Metahuristics_Framework(problem, start_solution)
+        # solution = General_Adaptive_Metahuristics_Framework(problem, start_solution)
 
 
-        cost = cost_function(solution, problem)
+        cost = cost_function(start_solution, problem)
         
-        best_solution = solution
+        best_solution = start_solution
 
         best_cost = cost
         total_cost = 0
@@ -42,7 +42,8 @@ def main():
         feasiblity, c = feasibility_check(best_solution, problem)
 
         for run in range(num_runs):
-            solution = initial_solution(problem)
+
+            solution = General_Adaptive_Metahuristics_Framework(problem, start_solution)
             solution_cost = cost_function(solution, problem)
 
             total_cost += solution_cost
