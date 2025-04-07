@@ -218,6 +218,7 @@ def cost_function(Solution, problem):
     TotalCost = NotTransportCost + sum(RouteTravelCost) + sum(CostInPorts)
     return TotalCost
 
+
 def initial_solution(problem):
     num_vehicles = problem['n_vehicles']
     solution = [0] * num_vehicles
@@ -329,6 +330,7 @@ def check_vehicle_feasibility(vehicle_plan, vehicle_idx, problem):
             currentTime = ArriveTime[j] + LU_Time[j]
     
     return True
+
 
 def dummy_reinsert(solution, problem):
     """
@@ -537,6 +539,83 @@ def one_reinsert(solution, problem):
     assert new_solution.count(chosen_call) == 2, f"Feil: {chosen_call} finnes {new_solution.count(chosen_call)} ganger!"
     return new_solution
 
+def greedy_reinsert(solution, problem):
+    """
+    Implements a greedy reinsert operator for improving a given solution.
+    
+    Steps:
+    1. Split the solution into separate vehicle routes.
+    2. Choose a random vehicle and a random call from that vehicle.
+    3. Select a random compatible vehicle for the call.
+    4. Find the optimal placement of the call within the new vehicle.
+    5. If the new solution is better than the old one, apply the change.
+    
+    Args:
+        solution (list of lists): The current solution where each vehicle has its assigned calls.
+        problem (dict): Problem data including cargo constraints and feasibility conditions.
+
+    Returns:
+        list of lists: A new solution with the greedy reinsert applied.
+    """
+    
+    print(f"Solution before greedy reinsert: {solution}")
+    new_solution = solution.copy()
+    vehicles = split_into_vehicles(new_solution)
+    dummy_vehicle = len(vehicles) - 1
+    
+    # Choose a random vehicle and a random call
+    from_vehicle = random.choice([v for v in vehicles if len(v) > 2])
+    chosen_call = random.choice([c for c in from_vehicle if c != 0])
+    
+    if from_vehicle.count(chosen_call) != 2:
+        raise ValueError(f"Error: chosen_call {chosen_call} does not appear twice in from_vehicle {from_vehicle}")
+
+    # Remove the chosen call from the original vehicle
+    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
+
+    #Select a random compatible vehicle
+    #print(problem["VesselCargo"], problem["n_calls"])
+    compatible_vehicles = [v for v in vehicles[:dummy_vehicle] if np.all(problem['VesselCargo'][vehicles.index(v), [chosen_call-1]])]+[dummy_vehicle]
+    if not compatible_vehicles:
+        #print(f"No compatible vehicles found for call {chosen_call}. Reverting.")
+        return solution
+    
+    #to_vehicle = random.choice(compatible_vehicles)
+    to_vehicle = random.choice(vehicles[:dummy_vehicle])
+
+    # Try to find the best insertion points for pickup and delivery
+    best_insertion = None
+    best_cost = float('inf')
+
+    for i in range(len(to_vehicle)):  
+        for j in range(i, len(to_vehicle)):  
+            temp_vehicle = to_vehicle[:i] + [chosen_call] + to_vehicle[i:j] + [chosen_call] + to_vehicle[j:]
+            #print(f"Trying insertion at {i} and {j}: {temp_vehicle}")
+
+            if vehicles.index(to_vehicle) == len(vehicles) - 1 or check_vehicle_feasibility(temp_vehicle, vehicles.index(to_vehicle), problem):
+                new_solution_temp = [v if v != to_vehicle else temp_vehicle for v in vehicles]
+                new_solution_temp = combine_vehicles(new_solution_temp)
+                #print(f"New solution temp: {new_solution_temp}")
+                new_cost = cost_function(new_solution_temp, problem)
+
+                if new_cost < best_cost:
+                    best_cost = new_cost
+                    best_insertion = (i, j)
+
+    # Apply the best insertion found
+    if best_insertion:
+        i, j = best_insertion
+        to_vehicle.insert(i, chosen_call)
+        to_vehicle.insert(j, chosen_call)
+        combine_vehicles(vehicles)
+
+        if cost_function(new_solution, problem) < cost_function(solution, problem):
+            print(f"New solution found with greedy reinsert with cost {cost_function(new_solution, problem)}")
+            return new_solution  # Return improved solution
+    print(f"No better solution found after greedy reinsert.")
+    return solution  # No improvement found, return original solution
+
+
 def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
     """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
     max_iterations = 10000
@@ -553,14 +632,12 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
 
     iterations_since_best = 0
     iteration = 0
-
-
     
     operator_scores = [1.0 for _ in range(5)] #er dette beste måten å lagre operator scores på?
     normalize_scores(operator_scores)
 
     operators = [
-              shuffle_vehicle,
+                shuffle_vehicle,
                 swap_calls, 
                 dummy_reinsert,
                 one_reinsert,
@@ -604,7 +681,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         
         assert 0 <= selected_operator < len(operators), f"Invalid operator index: {selected_operator}"
 
-        print(f"Iteration {iteration}: Selected operator {selected_operator}")
+        #print(f"Iteration {iteration}: Selected operator {selected_operator}")
 
         new_solution = operators[selected_operator](incumbent, problem)
         new_cost = cost_function(new_solution, problem)
@@ -634,7 +711,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
             1.0,  # Temperature parameter
             )
         
-        print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+        #print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
 
         if accepted:
             #s <- s_marked
@@ -742,6 +819,11 @@ def accept_solution(new_solution, new_cost, incumbent_cost, problem, T):
             return True  
     return False
 
+
+
+
+
+# gammelt
 def greedy_reinsert1(solution, problem):
 
     #split solution into vehicles
@@ -800,87 +882,6 @@ def greedy_reinsert1(solution, problem):
                     if cost_function(new_solution, problem) < cost_function(solution, problem):
                         
                         return new_solution     
-
-def greedy_reinsert(solution, problem):
-    """
-    Implements a greedy reinsert operator for improving a given solution.
-    
-    Steps:
-    1. Split the solution into separate vehicle routes.
-    2. Choose a random vehicle and a random call from that vehicle.
-    3. Select a random compatible vehicle for the call.
-    4. Find the optimal placement of the call within the new vehicle.
-    5. If the new solution is better than the old one, apply the change.
-    
-    Args:
-        solution (list of lists): The current solution where each vehicle has its assigned calls.
-        problem (dict): Problem data including cargo constraints and feasibility conditions.
-
-    Returns:
-        list of lists: A new solution with the greedy reinsert applied.
-    """
-    
-    print(f"Solution before greedy reinsert: {solution}")
-    new_solution = solution.copy()
-    vehicles = split_into_vehicles(new_solution)
-    dummy_vehicle = len(vehicles) - 1
-    
-    # Choose a random vehicle and a random call
-    from_vehicle = random.choice([v for v in vehicles if len(v) > 2])
-    chosen_call = random.choice([c for c in from_vehicle if c != 0])
-    
-    if from_vehicle.count(chosen_call) != 2:
-        raise ValueError(f"Error: chosen_call {chosen_call} does not appear twice in from_vehicle {from_vehicle}")
-
-    # Remove the chosen call from the original vehicle
-    from_vehicle[:] = [c for c in from_vehicle if c != chosen_call]
-
-    #Select a random compatible vehicle
-    print(problem["VesselCargo"], problem["n_calls"])
-    compatible_vehicles = [v for v in vehicles[:dummy_vehicle] if np.all(problem['VesselCargo'][vehicles.index(v), [chosen_call-1]])]+[dummy_vehicle]
-    if not compatible_vehicles:
-        print(f"No compatible vehicles found for call {chosen_call}. Reverting.")
-        return solution
-    
-    #to_vehicle = random.choice(compatible_vehicles)
-    to_vehicle = random.choice(vehicles[:dummy_vehicle])
-
-    # Try to find the best insertion points for pickup and delivery
-    best_insertion = None
-    best_cost = float('inf')
-
-    for i in range(len(to_vehicle)):  
-        for j in range(i, len(to_vehicle)):  
-            temp_vehicle = to_vehicle[:i] + [chosen_call] + to_vehicle[i:j] + [chosen_call] + to_vehicle[j:]
-            print(f"Trying insertion at {i} and {j}: {temp_vehicle}")
-
-            if vehicles.index(to_vehicle) == len(vehicles) - 1 or check_vehicle_feasibility(temp_vehicle, vehicles.index(to_vehicle), problem):
-                new_solution_temp = [v if v != to_vehicle else temp_vehicle for v in vehicles]
-                new_solution_temp = combine_vehicles(new_solution_temp)
-                print(f"New solution temp: {new_solution_temp}")
-                new_cost = cost_function(new_solution_temp, problem)
-
-                if new_cost < best_cost:
-                    best_cost = new_cost
-                    best_insertion = (i, j)
-
-    # Apply the best insertion found
-    if best_insertion:
-        i, j = best_insertion
-        to_vehicle.insert(i, chosen_call)
-        to_vehicle.insert(j, chosen_call)
-        combine_vehicles(vehicles)
-
-        if cost_function(new_solution, problem) < cost_function(solution, problem):
-            print(f"New solution found with greedy reinsert with cost {cost_function(new_solution, problem)}")
-            return new_solution  # Return improved solution
-    print(f"No better solution found after greedy reinsert.")
-    return solution  # No improvement found, return original solution
-
-
-
-
-# gammelt
 def escape1(current_solution, problem):
 
     escape_solution = current_solution.copy()
@@ -1297,8 +1298,6 @@ def simulated_annealing_1(problem):
 
 
 #hvordan skal jeg lagre beste løsning og i tillegg til å noen ganger akseptere en dårligere løsning?
-
-
 def General_Adaptive_Metahuristics_Framework1(problem, initial_solution):
     """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
 
