@@ -2,6 +2,7 @@ import numpy as np
 import random
 import math
 import copy
+import matplotlib as plt
 
 
 def load_problem(filename):
@@ -219,6 +220,7 @@ def cost_function(Solution, problem):
     return TotalCost
 
 
+
 def initial_solution(problem):
     num_vehicles = problem['n_vehicles']
     solution = [0] * num_vehicles
@@ -331,6 +333,8 @@ def check_vehicle_feasibility(vehicle_plan, vehicle_idx, problem):
     
     return True
 
+
+#operators
 
 def dummy_reinsert(solution, problem):
     """
@@ -587,6 +591,8 @@ def greedy_reinsert(solution, problem):
     best_insertion = None
     best_cost = float('inf')
 
+
+#skal jeg ha to_vehicle + 1???
     for i in range(len(to_vehicle)):  
         for j in range(i, len(to_vehicle)):  
             temp_vehicle = to_vehicle[:i] + [chosen_call] + to_vehicle[i:j] + [chosen_call] + to_vehicle[j:]
@@ -607,20 +613,38 @@ def greedy_reinsert(solution, problem):
         i, j = best_insertion
         to_vehicle.insert(i, chosen_call)
         to_vehicle.insert(j, chosen_call)
-        combine_vehicles(vehicles)
+
+        #combine_vehicles(vehicles)
+        new_solution = combine_vehicles(vehicles)
 
         if cost_function(new_solution, problem) < cost_function(solution, problem):
             print(f"New solution found with greedy reinsert with cost {cost_function(new_solution, problem)}")
-            return new_solution  # Return improved solution
+            return new_solution
+        
     print(f"No better solution found after greedy reinsert.")
     return solution  # No improvement found, return original solution
 
+def k_regret(solution, problem):
+   
+   #pick a random car
+   #for each call in the car or pick a random number of calls from the car
+    #store best solution and next best solution
+    #if best placement between two calls is equal, choose the next best position for the call with the best next best solution
+    #if the best solution is better than the current solution, apply the change
 
-def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
+    #maybe i can use this as a dictinoary to store the best and next best solution, in other methods like greedy reinsert.
+    #best_solution = {}
+    return
+
+
+def General_Adaptive_Metahuristics_Framework1(problem, initial_solution):
     """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
+
+    best_placements = {}
+
     max_iterations = 10000
     escape_condition = 100
-
+    update_frequency = 100
 
     #s <- initial_solution
     current_solution = initial_solution.copy()
@@ -631,46 +655,53 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
     best_cost = cost_function(best_solution, problem)
 
     iterations_since_best = 0
+    iterations_since_escape = 0
+    # skal jeg ha med noe som skiller på bedring og bedring med escape?
+    iterations_since_escape_best = 0
     iteration = 0
-    
-    operator_scores = [1.0 for _ in range(5)] #er dette beste måten å lagre operator scores på?
+
+    operators = [#shuffle_vehicle,
+                #swap_calls, 
+                # dummy_reinsert,
+                # one_reinsert,
+                #best_placement_operator
+                greedy_reinsert
+                ]
+    num_operators = len(operators)
+
+    operator_scores = [1.0] * num_operators
+    operator_improvements = [0] * num_operators
+    operator_probabilities = [1/num_operators] * num_operators
+
     normalize_scores(operator_scores)
 
-    operators = [
-                shuffle_vehicle,
-                swap_calls, 
-                dummy_reinsert,
-                one_reinsert,
-                greedy_reinsert,
-                ]
-
     while iteration < max_iterations:
-        if iterations_since_best > escape_condition:
+        if iterations_since_escape > escape_condition:
             print(f"Iteration {iteration}: Escape triggered")
             #apply an escape algorithm
+            current_solution = escape(current_solution, problem, iterations_since_best)
             
-            while True:
-                escape_solution = escape(
-                current_solution,
-                problem,
-                iterations_since_best
-                )
-                feasible, _ = feasibility_check(escape_solution, problem)
-                if feasible:
-                    break
-            current_solution = escape_solution
-            current_cost = cost_function(
-                current_solution,
-                problem
-                )
+            current_cost = cost_function(current_solution,problem)
             
-            iterations_since_best = 0
+        #må sjekke om det er en forbedring og kun oppdatere iterations since best da,
+        #men trenger kanskje en annen måling siden jeg også skal vite hvor lenge siden jeg fikk en bra løsning
+            
+            iterations_since_escape = 0 # er vel ikke sikkert at det blir en forbedring
 
-         #s_marked <- s
-         #Trenger jeg incumbent eller bør jeg bruke current_solution?
+            #Kan jeg ha med denne eller blir det sabotasje av rammeverket og escape?
+            # kommer det senere så jeg bare skal gjøre iterations since best helt tilslutt?
+            if current_cost < best_cost:
+                best_solution = current_solution
+                best_cost = current_cost
+                iterations_since_best = 0
+                print(f"New best solution found with cost {best_cost}")
+
+        #s_marked <- s
+        #Trenger jeg incumbent eller bør jeg bruke current_solution?
         incumbent = current_solution.copy()
         incumbent_cost = current_cost
-       
+
+    
         #select a heuristic, from the set of heuristics based on selection parameters
         #apply the heuristic to the s_marked
         selected_operator = select_heuristic(
@@ -681,6 +712,118 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         
         assert 0 <= selected_operator < len(operators), f"Invalid operator index: {selected_operator}"
 
+        print(f"Iteration {iteration}: Selected operator {selected_operator}")
+
+        new_solution = operators[selected_operator](incumbent, problem)
+        new_cost = cost_function(new_solution, problem)
+
+        feasible, _ = feasibility_check(new_solution, problem)
+
+        if feasible:
+        #if the cost of the new solution is better than the cost of the best solution
+            if new_cost < best_cost:
+                #s_best <- s_marked
+                best_solution = new_solution
+                best_cost = new_cost
+                
+                operator_scores[selected_operator] += 1
+                normalize_scores(operator_scores)
+                iterations_since_best = 0
+                print(f"New best solution found with cost {best_cost}")
+            
+        accepted = accept_solution(new_solution, new_cost, incumbent_cost, problem, 1.0)
+        
+        print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+
+        iterations_since_best += 1  
+        iteration += 1
+
+        if iteration % update_frequency == 0:
+            update_operator_probabilities(operator_improvements=operator_improvements,
+                                        operator_probabilities=operator_probabilities,
+                                        num_operators=num_operators)
+            
+            operator_improvements = [0] * num_operators  # Nullstill forbedringstellere
+            print(f"Updated operator probabilities: {operator_probabilities}")
+
+        print(f"Best solution:{best_solution} found with cost {best_cost}")
+    return best_solution
+
+def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
+    """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
+    max_iterations = 10000
+    escape_condition = 100
+    
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+
+    best_solution = initial_solution.copy()
+    best_cost = cost_function(best_solution, problem)
+
+    cost_history = []
+    temperature_history = [] # jeg hr vel kun en temperatur
+    acceptance_iter_history = []
+    acceptance_prob_history = []
+
+
+    iterations_since_best = 0
+    iteration = 0
+
+    operators = [
+                shuffle_vehicle,
+                swap_calls, 
+                dummy_reinsert,
+                one_reinsert,
+                greedy_reinsert,
+                ]
+    
+    # operator_names = [
+    #     "shuffle_vehicle",
+    #     "swap_calls",
+    #     "dummy_reinsert",
+    #     "one_reinsert",
+    #     "greedy_reinsert",
+    # ]
+
+    ##????
+    operator_deltas = {op.__name__: [] for op in operators} # hvorfor kan jeg ikke bare bruke operator_names?
+    operator_delta_iters = {op.__name__: [] for op in operators}
+
+    operator_names = [op.__name__ for op in operators]
+    num_operators = len(operators)
+    operator_scores = [1.0 for _ in range(num_operators)]
+    normalize_scores(operator_scores)
+
+    operator_scores_history = {name: [] for name in operator_names}
+    score_update_interval = 100
+    operator_improvements = [0 for _ in range(num_operators)] 
+
+    while iteration < max_iterations:
+
+        T = 1.0 - (iteration / max_iterations) # skal temperaturen være høy i starten eller mot slutten? kanskje bare escape skal ha høy temperatur
+        temperature_history.append(T)
+
+        if iterations_since_best > escape_condition:
+            print(f"Iteration {iteration}: Escape triggered")
+            
+            while True:
+                escape_solution = escape(current_solution, problem, iterations_since_best)
+                feasible, _ = feasibility_check(escape_solution, problem)
+                if feasible:
+                    break
+            current_solution = escape_solution # skal disse være inne i is feasible? 
+            current_cost = cost_function(current_solution, problem)
+            
+            # iterations_since_best = 0 # er dette riktigt?
+
+         #Trenger jeg incumbent eller bør jeg bruke current_solution?
+        incumbent = current_solution.copy()
+        incumbent_cost = current_cost
+       
+        selected_operator = select_heuristic(operator_scores, iteration, max_iterations)
+        
+        assert 0 <= selected_operator < num_operators, f"Invalid operator index: {selected_operator}"
+
         #print(f"Iteration {iteration}: Selected operator {selected_operator}")
 
         new_solution = operators[selected_operator](incumbent, problem)
@@ -689,45 +832,87 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         feasible, c = feasibility_check(new_solution, problem)
 
         if feasible:
-        #if the cost of the new solution is better than the cost of the best solution
             if new_cost < best_cost:
-                #s_best <- s_marked
-                best_solution = new_solution
+                operator_improvements[selected_operator] += 1
+                best_solution = new_solution.copy() #hvorfor copy?
                 best_cost = new_cost
+                print(f"New best solution found with cost {best_cost}")
+                iterations_since_best = 0
+
+            #elif new_cost < incumbent_cost:
+            #    operator_improvements[selected_operator] += 2
+            #elif new_cost == incumbent_cost:
+            #    operator_improvements[selected_operator] += 1
+
+            #if new_cost < best_cost:
+                #improvement = incumbent_cost - new_cost
+                #if improvement > 10:  # stort hopp
+            #         operator_improvements[selected_operator] += 5
+            #     else:
+            #         operator_improvements[selected_operator] += 4
+            # elif new_cost < incumbent_cost:
+            #     operator_improvements[selected_operator] += 2
+            # elif new_cost == incumbent_cost:
+            #     operator_improvements[selected_operator] += 1
+
+
+                #jeg bør lage et mer detaljert poengsystem for å se hvilke operatorer som er best
+                #Hvis de gir meg en bedre løsning så bør de få mer poeng 4
+                #hvis det er drastisk bedre løsning 5
+                #hvis de gir meg en original løsning bør de få litt poeng 2
+                #samme beste løsning som før 1
+            
+            delta = new_cost - incumbent_cost
+            accepted = accept_solution(new_solution, new_cost, incumbent_cost, problem, T)
+        
+            #accepted = accept_solution(new_solution, new_cost, incumbent_cost, problem, 1.0)  
+            #print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+
+            if accepted:
                 current_solution = new_solution
                 current_cost = new_cost
                 operator_scores[selected_operator] += 1
-                normalize_scores(operator_scores)
-                iterations_since_best = 0
-                print(f"New best solution found with cost {best_cost}")
-            
 
-        #if accept(s_marked, s) then
-        accepted = accept_solution(
-            new_solution,
-            new_cost,
-            incumbent_cost, 
-            problem,
-            1.0,  # Temperature parameter
-            )
-        
-        #print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
+                acceptance_iter_history.append(iteration)
+                try:
+                    acceptance_prob_history.append(math.exp(-delta / T))
+                except OverflowError:
+                    acceptance_prob_history.append(0)
+                #normalize_scores(operator_scores)
+               
+            if feasible and accepted:
+                operator_name = operator_names[selected_operator]
+                operator_deltas[operator_name].append(delta)
+                operator_delta_iters[operator_name].append(iteration)
+                print(f"New accepted solution found with cost {best_cost}")
+    
+        # accepted = accept_solution(new_solution, new_cost, incumbent_cost, problem, 1.0)  
+        # #print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
 
-        if accepted:
-            #s <- s_marked
-            current_solution = new_solution
-            current_cost = new_cost
+        # if accepted:
+        #     current_solution = new_solution
+        #     current_cost = new_cost
 
-        #update selecion parameters and iterate iterations_since_best
         iterations_since_best += 1  
         iteration += 1
+        cost_history.append(best_cost)
 
-    return best_solution
+
+        if iteration % score_update_interval == 0:
+            for i in range(num_operators):
+                operator_scores[i] += operator_improvements[i]
+            normalize_scores(operator_scores)
+
+            for i, name in enumerate(operator_names):
+                operator_scores_history[name].append(operator_scores[i])
+
+            operator_improvements = [0 for _ in range(num_operators)]
+
+    return best_solution, operator_scores_history, cost_history, temperature_history, acceptance_iter_history, acceptance_prob_history, operator_deltas, operator_delta_iters
+    #return best_solution, operator_scores_history, cost_history
 
 def escape(current_solution, problem, iterations_since_best):
-    """
-    Mer intelligent unnsluppe-metode
-    
+    """  
     Args:
         current_solution: Nåværende løsning
         problem: Probleminstans
@@ -764,7 +949,9 @@ def escape(current_solution, problem, iterations_since_best):
         ]
         
         escape_method = random.choices(escape_methods, weights)[0]
-        escape_solution = escape_method(escape_solution, problem)
+        proposed_solution = escape_method(escape_solution, problem)
+        if feasibility_check(proposed_solution, problem)[0]:
+            escape_solution = proposed_solution
     
     return escape_solution
 
@@ -797,13 +984,20 @@ def select_heuristic(operator_scores, iteration, max_iterations):
         
         return random.choices(indices, weights=weighted_scores, k=1)[0]
 
-def normalize_scores(operator_scores):
+def normalize_scores1(operator_scores):
     """Normalize operator scores to prevent extreme values"""
     min_score = 0.1  # Minimum allowed score
     max_score = 10.0  # Maximum allowed score
     
     for idx in range(len(operator_scores)):
         operator_scores[idx] = max(min_score, min(max_score, operator_scores[idx]))
+
+def normalize_scores(operator_scores):
+    scores = np.array(operator_scores)
+    exp_scores = np.exp(scores - np.max(scores))
+    softmax = exp_scores / np.sum(exp_scores)
+    for i in range(len(operator_scores)):
+        operator_scores[i] = softmax[i]
 
 def accept_solution(new_solution, new_cost, incumbent_cost, problem, T):
     """ Accept function for Simulated Annealing """
@@ -820,6 +1014,613 @@ def accept_solution(new_solution, new_cost, incumbent_cost, problem, T):
     return False
 
 
+
+
+
+
+
+#VNS trial
+
+
+def VNS_for_PDP(problem, initial_solution, max_iterations=1000, max_no_improvement=100):
+    """
+    Variable Neighborhood Search for Pickup and Delivery Problem
+    
+    Args:
+        problem: Problem data
+        initial_solution: Initial feasible solution
+        max_iterations: Maximum number of iterations
+        max_no_improvement: Maximum iterations without improvement
+    
+    Returns:
+        Best solution found
+    """
+    # Initialize solution
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+    
+    best_solution = current_solution.copy()
+    best_cost = current_cost
+    
+    # Define neighborhoods and their parameters
+    k_min = 1
+    k_max = 4
+    k_step = 1
+    
+    iteration = 0
+    iterations_no_improvement = 0
+    
+    # Define neighborhood operations
+    neighborhoods = [
+        lambda s, p: shuffle_vehicle_neighborhood(s, p),
+        lambda s, p: swap_calls_neighborhood(s, p),
+        lambda s, p: reinsert_neighborhood(s, p, "one"),
+        lambda s, p: reinsert_neighborhood(s, p, "greedy")
+    ]
+    
+    while iteration < max_iterations and iterations_no_improvement < max_no_improvement:
+        # Forward VNS: Start with k=1 and increase
+        k = k_min
+        
+        while k <= k_max:
+            # Shaking: Generate a point s' from the kth neighborhood of s
+            neighbor_solution = shake(current_solution, problem, k, neighborhoods)
+            
+            # Check feasibility
+            feasible, _ = feasibility_check(neighbor_solution, problem)
+            if not feasible:
+                k += k_step
+                continue
+                
+            # Local search to improve the solution
+            improved_solution = local_search(neighbor_solution, problem)
+            improved_cost = cost_function(improved_solution, problem)
+            
+            # Move or not
+            if improved_cost < current_cost:
+                current_solution = improved_solution.copy()
+                current_cost = improved_cost
+                
+                # Update best solution if needed
+                if current_cost < best_cost:
+                    best_solution = current_solution.copy()
+                    best_cost = current_cost
+                    iterations_no_improvement = 0
+                    print(f"VNS Iteration {iteration}: New best solution with cost {best_cost}")
+                    
+                    # Reset k to begin again from first neighborhood
+                    k = k_min
+                else:
+                    iterations_no_improvement += 1
+                    k += k_step
+            else:
+                # With small probability, accept worse solution (to escape local optima)
+                if random.random() < 0.1 * math.exp(-(improved_cost - current_cost) / (current_cost * 0.01)):
+                    current_solution = improved_solution.copy()
+                    current_cost = improved_cost
+                    print(f"VNS Iteration {iteration}: Accepted worse solution with cost {current_cost}")
+                    k += k_step
+                else:
+                    k += k_step
+        
+        iteration += 1
+        
+    return best_solution, best_cost
+
+def shake(solution, problem, k, neighborhoods):
+    """
+    Shake the solution by applying k neighborhood operations
+    
+    Args:
+        solution: Current solution
+        problem: Problem data
+        k: Neighborhood level
+        neighborhoods: List of neighborhood operation functions
+    
+    Returns:
+        New solution after shaking
+    """
+    temp_solution = solution.copy()
+    
+    # Apply k random neighborhood operations
+    for _ in range(k):
+        # Choose a random neighborhood operation
+        neighborhood_op = random.choice(neighborhoods)
+        temp_solution = neighborhood_op(temp_solution, problem)
+        
+        # Check feasibility and retry if not feasible
+        feasible, _ = feasibility_check(temp_solution, problem)
+        attempts = 0
+        while not feasible and attempts < 5:
+            temp_solution = solution.copy()
+            neighborhood_op = random.choice(neighborhoods)
+            temp_solution = neighborhood_op(temp_solution, problem)
+            feasible, _ = feasibility_check(temp_solution, problem)
+            attempts += 1
+            
+        if not feasible:
+            return solution.copy()  # Return original if can't find feasible
+    
+    return temp_solution
+
+def local_search(solution, problem):
+    """
+    Local search to improve the solution
+    Uses a first-improvement strategy with multiple neighborhood types
+    
+    Args:
+        solution: Current solution
+        problem: Problem data
+    
+    Returns:
+        Improved solution
+    """
+    improved = True
+    current_solution = solution.copy()
+    
+    max_attempts = 10  # Limit local search iterations
+    attempt = 0
+    
+    while improved and attempt < max_attempts:
+        improved = False
+        current_cost = cost_function(current_solution, problem)
+        
+        # Try different operators in sequence
+        operators = [shuffle_vehicle, swap_calls, one_reinsert, greedy_reinsert]
+        random.shuffle(operators)  # Randomize order of operators
+        
+        for operator in operators:
+            new_solution = operator(current_solution, problem)
+            feasible, _ = feasibility_check(new_solution, problem)
+            
+            if feasible:
+                new_cost = cost_function(new_solution, problem)
+                if new_cost < current_cost:
+                    current_solution = new_solution
+                    improved = True
+                    break  # First improvement strategy
+        
+        attempt += 1
+    
+    return current_solution
+
+def shuffle_vehicle_neighborhood(solution, problem):
+    """
+    Neighborhood operation: Shuffle calls within a vehicle
+    
+    Args:
+        solution: Current solution
+        problem: Problem data
+    
+    Returns:
+        New solution with shuffled calls in one vehicle
+    """
+    vehicles = split_into_vehicles(solution)
+    
+    # Choose a non-empty vehicle randomly
+    non_empty_vehicles = [i for i, v in enumerate(vehicles) if v]
+    if not non_empty_vehicles:
+        return solution
+    
+    vehicle_idx = random.choice(non_empty_vehicles)
+    
+    # Get pickup-delivery pairs
+    pairs = []
+    processed_calls = set()
+    
+    for call in vehicles[vehicle_idx]:
+        if call not in processed_calls:
+            # Find the matching delivery point
+            processed_calls.add(call)
+            pair_idx = vehicles[vehicle_idx].index(call)
+            delivery_indices = [i for i, x in enumerate(vehicles[vehicle_idx]) if x == call and i != pair_idx]
+            
+            if delivery_indices:
+                pairs.append((pair_idx, delivery_indices[0]))
+    
+    # Shuffle the order of pairs
+    random.shuffle(pairs)
+    
+    # Create new vehicle plan ensuring pickup before delivery
+    new_vehicle = []
+    for pickup, delivery in pairs:
+        new_vehicle.append(vehicles[vehicle_idx][pickup])
+        new_vehicle.append(vehicles[vehicle_idx][pickup])  # Same call number for pickup and delivery
+    
+    vehicles[vehicle_idx] = new_vehicle
+    
+    # Check if the new plan is feasible for this vehicle
+    if not check_vehicle_feasibility(new_vehicle, vehicle_idx, problem):
+        return solution
+    
+    return combine_vehicles(vehicles)
+
+def swap_calls_neighborhood(solution, problem):
+    """
+    Neighborhood operation: Swap two calls between vehicles
+    
+    Args:
+        solution: Current solution
+        problem: Problem data
+    
+    Returns:
+        New solution with swapped calls
+    """
+    vehicles = split_into_vehicles(solution)
+    
+    # Need at least two vehicles with calls
+    non_empty_vehicles = [i for i, v in enumerate(vehicles) if v]
+    if len(non_empty_vehicles) < 2:
+        return solution
+    
+    # Select two different vehicles
+    v1_idx, v2_idx = random.sample(non_empty_vehicles, 2)
+    
+    # Get a pickup-delivery pair from each
+    if not vehicles[v1_idx] or not vehicles[v2_idx]:
+        return solution
+    
+    # Get all unique call numbers in each vehicle
+    calls_v1 = list(set(vehicles[v1_idx]))
+    calls_v2 = list(set(vehicles[v2_idx]))
+    
+    if not calls_v1 or not calls_v2:
+        return solution
+    
+    call1 = random.choice(calls_v1)
+    call2 = random.choice(calls_v2)
+    
+    # Create new vehicle plans
+    new_v1 = [c for c in vehicles[v1_idx] if c != call1]
+    new_v2 = [c for c in vehicles[v2_idx] if c != call2]
+    
+    # Add call2 to v1
+    pickup_indices = [i for i, x in enumerate(vehicles[v2_idx]) if x == call2]
+    for _ in range(len(pickup_indices)):
+        new_v1.append(call2)
+    
+    # Add call1 to v2
+    pickup_indices = [i for i, x in enumerate(vehicles[v1_idx]) if x == call1]
+    for _ in range(len(pickup_indices)):
+        new_v2.append(call1)
+    
+    # Check feasibility
+    old_vehicles = vehicles.copy()
+    vehicles[v1_idx] = new_v1
+    vehicles[v2_idx] = new_v2
+    
+    # Check vehicle feasibility
+    if not check_vehicle_feasibility(new_v1, v1_idx, problem) or \
+       not check_vehicle_feasibility(new_v2, v2_idx, problem):
+        return solution
+    
+    return combine_vehicles(vehicles)
+
+def reinsert_neighborhood(solution, problem, strategy="one"):
+    """
+    Neighborhood operation: Reinsert calls
+    
+    Args:
+        solution: Current solution
+        problem: Problem data
+        strategy: "one" or "greedy"
+    
+    Returns:
+        New solution with reinserted calls
+    """
+    vehicles = split_into_vehicles(solution)
+    
+    # Choose a source vehicle with calls
+    non_empty_vehicles = [i for i, v in enumerate(vehicles) if v]
+    if not non_empty_vehicles:
+        return solution
+    
+    source_idx = random.choice(non_empty_vehicles)
+    
+    # Choose a call to remove
+    if not vehicles[source_idx]:
+        return solution
+    
+    unique_calls = list(set(vehicles[source_idx]))
+    if not unique_calls:
+        return solution
+    
+    call = random.choice(unique_calls)
+    
+    # Remove the call from source vehicle
+    new_source = [c for c in vehicles[source_idx] if c != call]
+    
+    # Choose a target vehicle (could be the same)
+    target_idx = random.randint(0, len(vehicles) - 1)
+    
+    # Create target vehicle with the call inserted
+    target = vehicles[target_idx].copy()
+    
+    if strategy == "one":
+        # Simple insertion - add at the end
+        target.append(call)
+        target.append(call)  # Both pickup and delivery
+    elif strategy == "greedy":
+        # Greedy insertion - try all positions
+        best_pos = len(target)
+        best_cost = float('inf')
+        
+        for pos in range(len(target) + 1):
+            test_target = target.copy()
+            test_target.insert(pos, call)
+            test_target.insert(pos + 1, call)
+            
+            vehicles_copy = vehicles.copy()
+            vehicles_copy[target_idx] = test_target
+            vehicles_copy[source_idx] = new_source
+            
+            test_solution = combine_vehicles(vehicles_copy)
+            feasible, _ = feasibility_check(test_solution, problem)
+            
+            if feasible:
+                cost = cost_function(test_solution, problem)
+                if cost < best_cost:
+                    best_cost = cost
+                    best_pos = pos
+        
+        # Insert at best position
+        target.insert(best_pos, call)
+        target.insert(best_pos + 1, call)
+    
+    # Update vehicles
+    vehicles[source_idx] = new_source
+    vehicles[target_idx] = target
+    
+    # Check feasibility
+    if not check_vehicle_feasibility(vehicles[source_idx], source_idx, problem) or \
+       not check_vehicle_feasibility(vehicles[target_idx], target_idx, problem):
+        return solution
+    
+    return combine_vehicles(vehicles)
+
+def VNS_skewed(problem, initial_solution, max_iterations=1000, max_no_improvement=100, alpha=0.3):
+    """
+    Skewed VNS implementation
+    
+    Args:
+        problem: Problem data
+        initial_solution: Initial feasible solution
+        max_iterations: Maximum number of iterations
+        max_no_improvement: Maximum iterations without improvement
+        alpha: Parameter for skewed acceptance criterion
+    
+    Returns:
+        Best solution found
+    """
+    # Initialize solution
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+    
+    best_solution = current_solution.copy()
+    best_cost = current_cost
+    
+    # Define neighborhoods
+    k_min = 1
+    k_max = 4
+    
+    iteration = 0
+    iterations_no_improvement = 0
+    
+    neighborhoods = [
+        lambda s, p: shuffle_vehicle_neighborhood(s, p),
+        lambda s, p: swap_calls_neighborhood(s, p),
+        lambda s, p: reinsert_neighborhood(s, p, "one"),
+        lambda s, p: reinsert_neighborhood(s, p, "greedy")
+    ]
+    
+    while iteration < max_iterations and iterations_no_improvement < max_no_improvement:
+        k = k_min
+        
+        while k <= k_max:
+            # Shaking
+            neighbor_solution = shake(current_solution, problem, k, neighborhoods)
+            
+            # Local search
+            improved_solution = local_search(neighbor_solution, problem)
+            improved_cost = cost_function(improved_solution, problem)
+            
+            # Calculate solution distance
+            solution_distance = calculate_distance(current_solution, improved_solution)
+            
+            # Update best solution if improved
+            if improved_cost < best_cost:
+                best_solution = improved_solution.copy()
+                best_cost = improved_cost
+                iterations_no_improvement = 0
+                print(f"Skewed VNS Iteration {iteration}: New best solution with cost {best_cost}")
+            
+            # Skewed acceptance criterion
+            # Accept if f(new) - alpha * distance < f(current)
+            if improved_cost - alpha * solution_distance < current_cost:
+                current_solution = improved_solution.copy()
+                current_cost = improved_cost
+                k = k_min  # Reset neighborhood
+            else:
+                k += 1
+                iterations_no_improvement += 1
+        
+        iteration += 1
+    
+    return best_solution, best_cost
+
+def calculate_distance(solution1, solution2):
+    """
+    Calculate distance between two solutions
+    Based on the number of calls assigned to different vehicles
+    
+    Args:
+        solution1: First solution
+        solution2: Second solution
+    
+    Returns:
+        Distance measure
+    """
+    vehicles1 = split_into_vehicles(solution1)
+    vehicles2 = split_into_vehicles(solution2)
+    
+    distance = 0
+    
+    # Find where calls are assigned in each solution
+    call_locations1 = {}
+    call_locations2 = {}
+    
+    for v_idx, vehicle in enumerate(vehicles1):
+        for call in set(vehicle):
+            call_locations1[call] = v_idx
+    
+    for v_idx, vehicle in enumerate(vehicles2):
+        for call in set(vehicle):
+            call_locations2[call] = v_idx
+    
+    # Count differences
+    for call in set(call_locations1.keys()).union(set(call_locations2.keys())):
+        if call == 0:  # Skip the separator
+            continue
+            
+        v1 = call_locations1.get(call, -1)
+        v2 = call_locations2.get(call, -1)
+        
+        if v1 != v2:
+            distance += 1
+    
+    return distance
+
+def VNS_reduced(problem, initial_solution, max_iterations=1000, max_no_improvement=100):
+    """
+    Reduced VNS implementation without local search
+    
+    Args:
+        problem: Problem data
+        initial_solution: Initial feasible solution
+        max_iterations: Maximum number of iterations
+        max_no_improvement: Maximum iterations without improvement
+    
+    Returns:
+        Best solution found
+    """
+    # Initialize solution
+    current_solution = initial_solution.copy()
+    current_cost = cost_function(current_solution, problem)
+    
+    best_solution = current_solution.copy()
+    best_cost = current_cost
+    
+    # Define neighborhoods
+    k_min = 1
+    k_max = 4
+    k_step = 1
+    
+    iteration = 0
+    iterations_no_improvement = 0
+    
+    neighborhoods = [
+        lambda s, p: shuffle_vehicle_neighborhood(s, p),
+        lambda s, p: swap_calls_neighborhood(s, p),
+        lambda s, p: reinsert_neighborhood(s, p, "one"),
+        lambda s, p: reinsert_neighborhood(s, p, "greedy")
+    ]
+    
+    while iteration < max_iterations and iterations_no_improvement < max_no_improvement:
+        # Backward VNS: Start with k=kmax and decrease
+        k = k_max
+        
+        while k >= k_min:
+            # Shaking only (no local search)
+            neighbor_solution = shake(current_solution, problem, k, neighborhoods)
+            
+            # Check feasibility
+            feasible, _ = feasibility_check(neighbor_solution, problem)
+            if not feasible:
+                k -= k_step
+                continue
+                
+            neighbor_cost = cost_function(neighbor_solution, problem)
+            
+            # Move or not
+            if neighbor_cost < current_cost:
+                current_solution = neighbor_solution.copy()
+                current_cost = neighbor_cost
+                
+                # Update best solution if needed
+                if current_cost < best_cost:
+                    best_solution = current_solution.copy()
+                    best_cost = current_cost
+                    iterations_no_improvement = 0
+                    print(f"Reduced VNS Iteration {iteration}: New best solution with cost {best_cost}")
+                    
+                    # Reset k to begin again from largest neighborhood
+                    k = k_max
+                else:
+                    iterations_no_improvement += 1
+                    k -= k_step
+            else:
+                k -= k_step
+        
+        iteration += 1
+    
+    return best_solution, best_cost
+
+def run_vns_with_options(problem, initial_solution, vns_type="forward", max_iterations=1000):
+    """
+    Run VNS with specified options
+    
+    Args:
+        problem: Problem data
+        initial_solution: Initial feasible solution
+        vns_type: "forward", "backward", "skewed", or "reduced"
+        max_iterations: Maximum iterations
+        
+    Returns:
+        Best solution and cost
+    """
+    print(f"Running {vns_type.capitalize()} VNS...")
+    
+    if vns_type == "forward":
+        return VNS_for_PDP(problem, initial_solution, max_iterations)
+    elif vns_type == "skewed":
+        return VNS_skewed(problem, initial_solution, max_iterations)
+    elif vns_type == "reduced":
+        return VNS_reduced(problem, initial_solution, max_iterations)
+    else:
+        # For backward, we just modify the basic VNS
+        # Implement backward search direction in basic VNS
+        solution, cost = VNS_for_PDP(problem, initial_solution, max_iterations)
+        return solution, cost
+
+def integrated_vns_gamf(problem, initial_solution, max_iterations=5000, vns_type="forward"):
+    """
+    Integrate VNS with the General Adaptive Metaheuristics Framework
+    
+    Args:
+        problem: Problem data
+        initial_solution: Initial feasible solution
+        max_iterations: Maximum iterations
+        vns_type: VNS variant to use
+        
+    Returns:
+        Best solution found
+    """
+    # First run GAMF
+    gamf_solution = General_Adaptive_Metahuristics_Framework(problem, initial_solution)
+    gamf_cost = cost_function(gamf_solution, problem)
+    
+    print(f"GAMF Solution Cost: {gamf_cost}")
+    
+    # Then use VNS to improve the GAMF solution
+    vns_solution, vns_cost = run_vns_with_options(problem, gamf_solution, vns_type, max_iterations//2)
+    
+    print(f"VNS improved solution cost: {vns_cost}")
+    
+    # Return the best solution
+    if vns_cost < gamf_cost:
+        return vns_solution
+    else:
+        return gamf_solution
 
 
 
@@ -1298,142 +2099,6 @@ def simulated_annealing_1(problem):
 
 
 #hvordan skal jeg lagre beste løsning og i tillegg til å noen ganger akseptere en dårligere løsning?
-def General_Adaptive_Metahuristics_Framework1(problem, initial_solution):
-    """ General Adaptive Metahuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
-
-    best_placements = {}
-
-    max_iterations = 10000
-    escape_condition = 100
-    update_frequency = 100
-
-    #s <- initial_solution
-    current_solution = initial_solution.copy()
-    current_cost = cost_function(current_solution, problem)
-
-    #solution s_best <- s
-    best_solution = initial_solution.copy()
-    best_cost = cost_function(best_solution, problem)
-
-    iterations_since_best = 0
-    iterations_since_escape = 0
-    # skal jeg ha med noe som skiller på bedring og bedring med escape?
-    iterations_since_escape_best = 0
-    iteration = 0
-
-    operators = [#shuffle_vehicle,
-                #swap_calls, 
-                # dummy_reinsert,
-                # one_reinsert,
-                #best_placement_operator
-                greedy_reinsert
-                ]
-    num_operators = len(operators)
-
-    operator_scores = [1.0] * num_operators
-    operator_improvements = [0] * num_operators
-    operator_probabilities = [1/num_operators] * num_operators
-
-    normalize_scores(operator_scores)
-
-    while iteration < max_iterations:
-        if iterations_since_escape > escape_condition:
-            print(f"Iteration {iteration}: Escape triggered")
-            #apply an escape algorithm
-            current_solution = escape(
-                current_solution,
-                problem,
-                iterations_since_best
-                )
-            
-            current_cost = cost_function(
-                current_solution,
-                problem
-                )
-            
-        #må sjekke om det er en forbedring og kun oppdatere iterations since best da,
-        #men trenger kanskje en annen måling siden jeg også skal vite hvor lenge siden jeg fikk en bra løsning
-            
-            iterations_since_escape = 0 # er vel ikke sikkert at det blir en forbedring
-
-            #Kan jeg ha med denne eller blir det sabotasje av rammeverket og escape?
-            # kommer det senere så jeg bare skal gjøre iterations since best helt tilslutt?
-            if current_cost < best_cost:
-                best_solution = current_solution
-                best_cost = current_cost
-                iterations_since_best = 0
-                print(f"New best solution found with cost {best_cost}")
-
-        #s_marked <- s
-        #Trenger jeg incumbent eller bør jeg bruke current_solution?
-        incumbent = current_solution.copy()
-        incumbent_cost = current_cost
-
-    
-        #select a heuristic, from the set of heuristics based on selection parameters
-        #apply the heuristic to the s_marked
-        selected_operator = select_heuristic(
-                operator_scores,
-                iteration,
-                max_iterations
-                )
-        
-        assert 0 <= selected_operator < len(operators), f"Invalid operator index: {selected_operator}"
-
-        print(f"Iteration {iteration}: Selected operator {selected_operator}")
-
-        new_solution = operators[selected_operator](incumbent, problem)
-        new_cost = cost_function(new_solution, problem)
-
-        feasible, _ = feasibility_check(new_solution, problem)
-
-        if feasible:
-        #if the cost of the new solution is better than the cost of the best solution
-            if new_cost < best_cost:
-                #s_best <- s_marked
-                best_solution = new_solution
-                best_cost = new_cost
-                #jeg bør lage et mer detaljert poengsystem for å se hvilke operatorer som er best
-                #Hvis de gir meg en bedre løsning så bør de få mer poeng 4
-                #hvis det er drastisk bedre løsning 5
-                #hvis de gir meg en original løsning bør de få litt poeng 2
-                #samme beste løsning som før 1
-                operator_scores[selected_operator] += 1
-                normalize_scores(operator_scores)
-                iterations_since_best = 0
-                print(f"New best solution found with cost {best_cost}")
-            
-        # kan jeg bruke min simulated annealing her i steden for å lage en ny funksjon?
-        #if accept(s_marked, s) then
-        accepted = accept_solution(
-            new_solution,
-            new_cost,
-            incumbent_cost, 
-            problem,
-            1.0
-            )
-        
-        print(f"Old cost: {incumbent_cost}, New cost: {new_cost}, Accepted: {accepted}")
-
-        # if accepted:
-        #     #s <- s_marked
-        #     current_solution = new_solution
-        #     current_cost = new_cost
-
-        #update selecion parameters and iterate iterations_since_best
-        iterations_since_best += 1  
-        iteration += 1
-
-        if iteration % update_frequency == 0:
-            update_operator_probabilities(operator_improvements=operator_improvements,
-                                        operator_probabilities=operator_probabilities,
-                                        num_operators=num_operators)
-            
-            operator_improvements = [0] * num_operators  # Nullstill forbedringstellere
-            print(f"Updated operator probabilities: {operator_probabilities}")
-
-        print(f"Best solution:{best_solution} found with cost {best_cost}")
-    return best_solution
 
 
 def update_operator_probabilities(operator_improvements, operator_probabilities, num_operators):
