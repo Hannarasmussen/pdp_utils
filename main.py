@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import os
 import json
 
-# hvordan skal jeg lagre alle de ulike plotene og løsningene?
 
 def plot_cost_history(cost_history, instance_name, run_id):
     plt.figure(figsize=(12, 6))
@@ -32,11 +31,10 @@ def plot_all_runs_cost_histories(cost_histories, instance_name):
     plt.savefig(f"plots/{instance_name}_all_runs_cost_history.png")
     plt.close()
 
-
 def plot_operator_scores(score_history, instance_name, run_id):
     plt.figure(figsize=(12, 6))
     for name, scores in score_history.items():
-        plt.plot(range(0, 10000, 100), scores, label=name)
+        plt.plot(scores, label=name)
     plt.xlabel("Score update steps")
     plt.ylabel("Normalized Operator Score")
     plt.title(f"Operator Score Evolution - Run {run_id} ({instance_name})")
@@ -56,6 +54,33 @@ def plot_operator_deltas(operator_deltas, operator_delta_iters, instance_name, r
         plt.grid(True)
         plt.savefig(f"plots/{instance_name}_run{run_id}_delta_{operator}.png")
         plt.close()
+
+def plot_operator_deltas_normalized(operator_deltas, operator_delta_iters, instance_name, run_id):
+    plt.figure(figsize=(12, 6))
+    
+    for operator in operator_deltas:
+        deltas = np.array(operator_deltas[operator])
+        if len(deltas) == 0:
+            continue
+        # Normaliser til [0, 1]
+        min_delta = np.min(deltas)
+        max_delta = np.max(deltas)
+        if max_delta > min_delta:
+            normalized_deltas = (deltas - min_delta) / (max_delta - min_delta)
+        else:
+            normalized_deltas = np.zeros_like(deltas)  # hvis alle verdier er like
+
+        plt.scatter(operator_delta_iters[operator], normalized_deltas, alpha=0.5, label=operator)
+
+    plt.title(f"Normalized Delta Values per Operator - Run {run_id} ({instance_name})")
+    plt.xlabel("Iteration")
+    plt.ylabel("Normalized Delta")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"plots/{instance_name}_run{run_id}_normalized_deltas_all.png")
+    plt.close()
+
 
 # def plot_temperature(temperature_history, instance_name, run_id):
 #     plt.figure()
@@ -87,20 +112,21 @@ def report_final_objectives(objective_values_per_instance):
         print(f"Final objectives for {instance}: {values}")
 
 def main():
-    test_instances = [  #'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt',
+    test_instances = [  'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt',
                         'pdp_utils/data/pd_problem/Call_18_Vehicle_5.txt',
-                        #'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
+                        'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
                         #'pdp_utils/data/pd_problem/Call_80_Vehicle_20.txt',
                         #'pdp_utils/data/pd_problem/Call_130_Vehicle_40.txt'
+                        #'pdp_utils/data/pd_problem/Call_300_Vehicle_90.txt',
                         ]
-    num_runs = 5
+    num_runs = 2
     results = {}
 
     os.makedirs("plots", exist_ok=True)
 
     
     for instance in test_instances:
-        start_time = time.time()  # Start the timer
+        start_time = time.time()
         instance_name = instance.split("/")[-1].replace(".txt", "")
         problem = load_problem(instance)
         start_solution = initial_solution(problem)
@@ -116,7 +142,6 @@ def main():
         cost_histories = []
 
         for run in range(num_runs):
-            #start_time = time.time()
             print(f"Running instance {instance_name} - Run {run + 1}/{num_runs}")
             solution, operator_scores_history, cost_history, acceptance_iter_history, acceptance_prob_history, operator_deltas, operator_delta_iters, best_iteration = General_Adaptive_Metahuristics_Framework(problem, start_solution)
             cost_histories.append(cost_history)
@@ -142,19 +167,12 @@ def main():
                 'Best iteration': best_iteration
             })
 
-            
+            plot_operator_deltas_normalized(operator_deltas, operator_delta_iters, instance_name, run + 1)
+
         
         avg_cost = total_cost / num_runs
         improvement = 100 * (start_cost - best_cost) / start_cost
         running_time = time.time() - start_time
-
-        # summary = {
-        #     'Average Objective': avg_cost,
-        #     'Best Objective': best_cost,
-        #     'Improvement (%)': improvement,
-        #     'Running Time (s)': running_time,
-        #     'Best solution': str(best_solution)
-        # }
 
         summary = {
             'Average Objective': f"{avg_cost:.0f}",
@@ -171,12 +189,9 @@ def main():
         #plot_temperature(temperature_history, instance_name, run + 1)
         #plot_acceptance_probability(acceptance_iter_history, acceptance_prob_history, instance_name, run + 1)
         plot_operator_deltas(operator_deltas, operator_delta_iters, instance_name, run + 1)
+        
 
         print(tabulate([summary], headers="keys", tablefmt="fancy_grid"))
-        # with open(f"results/results_{instance_name}.json", "w") as f:
-        #     json.dump(results[instance], f, indent=4)
-
-        #report_best_solution_iterations(best_iterations_per_run, instance_name) # denne gir ikke mening
        
         report_final_objectives(objective_values_per_instance)
         print(f"Best solution found at iteration {best_iteration} for instance {instance_name}")
