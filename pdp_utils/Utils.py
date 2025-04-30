@@ -693,6 +693,31 @@ def costly_random(solution, problem):
     new_solution, chosen_calls = remove_costly(solution, problem, 5, 50)
     return greedy(new_solution, problem, chosen_calls)
 
+#costly_regret
+#ikke i bruk enda
+
+def costly_small_regret(solution, problem):
+    """
+    Remove a small number of calls and then reinsert them using the costly method with regret.
+    """
+    new_solution, chosen_calls = remove_costly(solution, problem, 5, 10)
+    return k_regret(new_solution, problem, chosen_calls, 2)
+
+def costly_medium_regret(solution, problem):
+    """
+    Remove a medium number of calls and then reinsert them using the costly method with regret.
+    """
+    new_solution, chosen_calls = remove_costly(solution, problem, 10, 15)
+    return k_regret(new_solution, problem, chosen_calls, 2)
+
+def costly_large_regret(solution, problem):
+    """
+    Remove a large number of calls and then reinsert them using the costly method with regret.
+    """
+    new_solution, chosen_calls = remove_costly(solution, problem, 25, 50)
+    return k_regret(new_solution, problem, chosen_calls, 2)
+
+
 
 def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
     """ General Adaptive Metaheuristics Framework for Pickup and Delivery Problem with Adaptive Operator Selection """
