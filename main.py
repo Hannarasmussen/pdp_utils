@@ -113,8 +113,8 @@ def report_final_objectives(objective_values_per_instance):
 
 def main():
     test_instances = [  #'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt',
-                        #pdp_utils/data/pd_problem/Call_18_Vehicle_5.txt',
-                        'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
+                        'pdp_utils/data/pd_problem/Call_18_Vehicle_5.txt',
+                        #'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
                         #'pdp_utils/data/pd_problem/Call_80_Vehicle_20.txt',
                         #'pdp_utils/data/pd_problem/Call_130_Vehicle_40.txt'
                         #'pdp_utils/data/pd_problem/Call_300_Vehicle_90.txt',
@@ -167,7 +167,7 @@ def main():
                 'Best iteration': best_iteration
             })
 
-            plot_operator_deltas_normalized(operator_deltas, operator_delta_iters, instance_name, run + 1)
+            #plot_operator_deltas_normalized(operator_deltas, operator_delta_iters, instance_name, run + 1)
 
         
         avg_cost = total_cost / num_runs

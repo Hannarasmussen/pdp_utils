@@ -5,6 +5,9 @@ import copy
 import matplotlib as plt
 import heapq
 
+LOWER_BOUND = 5
+UPPER_BOUND = 40
+
 
 def load_problem(filename):
     """
@@ -220,6 +223,37 @@ def cost_function(Solution, problem):
     TotalCost = NotTransportCost + sum(RouteTravelCost) + sum(CostInPorts)
     return TotalCost
 
+def cost_vehicle_function(vehicle, problem, vehicle_idx):
+    Cargo = problem['Cargo']
+    TravelCost = problem['TravelCost']
+    FirstTravelCost = problem['FirstTravelCost']
+    PortCost = problem['PortCost']
+
+    RouteTravelCost = 0
+    CostInPorts = 0
+
+    currentVPlan = np.array(vehicle)
+    currentVPlan = currentVPlan - 1
+    NoDoubleCallOnVehicle = len(currentVPlan)
+
+    if NoDoubleCallOnVehicle > 0:
+        sortRout = np.sort(currentVPlan, kind='mergesort')
+        I = np.argsort(currentVPlan, kind='mergesort')
+        Indx = np.argsort(I, kind='mergesort')
+
+        PortIndex = Cargo[sortRout, 1].astype(int)
+        PortIndex[::2] = Cargo[sortRout[::2], 0]
+        PortIndex = PortIndex[Indx] - 1
+
+        Diag = TravelCost[vehicle_idx, PortIndex[:-1], PortIndex[1:]]
+
+        FirstVisitCost = FirstTravelCost[vehicle_idx, int(Cargo[currentVPlan[0], 0] - 1)]
+        RouteTravelCost = np.sum(np.hstack((FirstVisitCost, Diag.flatten())))
+        CostInPorts = np.sum(PortCost[vehicle_idx, currentVPlan]) / 2
+
+    TotalCost = RouteTravelCost + CostInPorts
+    return TotalCost
+
 def initial_solution(problem):
     num_vehicles = problem['n_vehicles']
     solution = [0] * num_vehicles
@@ -348,63 +382,13 @@ def remove_calls(solution, problem, min_percent, max_percent):
 
     chosen_calls = random.sample(call_ids, num_calls_to_remove)
 
+
     for call in chosen_calls:
         for vehicle in vehicles:
             while call in vehicle:
                 vehicle.remove(call)
 
     return combine_vehicles(vehicles), chosen_calls
-
-def remove_costly1(solution, problem, num_calls_to_remove):
-    """
-    Fjerner de mest kostbare samtalene (2 forekomster) fra løsningen.
-
-    Args:
-        solution (list): Nåværende løsning (flat liste med alle kjøretøy)
-        problem (dict): Problemdata
-        num_calls_to_remove (int): Antall samtaler som skal fjernes
-
-    Returns:
-        Tuple[new_solution, List[int]]: Ny løsning og liste med fjernede samtaler
-    """
-    new_solution = solution.copy()
-    vehicles = split_into_vehicles(new_solution)
-    removed_calls = []
-
-    for _ in range(num_calls_to_remove):
-        all_calls = set(call for vehicle in vehicles for call in vehicle)
-        call_scores = []
-
-        for call in all_calls:
-            # Finn kjøretøyet som har begge forekomster
-            for idx, vehicle in enumerate(vehicles):
-                if vehicle.count(call) == 2:
-                    temp_vehicle = vehicle.copy()
-                    temp_vehicle = [c for c in temp_vehicle if c != call]
-                    temp_vehicles = vehicles.copy()
-                    temp_vehicles[idx] = temp_vehicle
-                    temp_solution = combine_vehicles(temp_vehicles)
-
-                    original_cost = cost_function(combine_vehicles(vehicles), problem)
-                    new_cost = cost_function(temp_solution, problem)
-                    improvement = original_cost - new_cost
-
-                    call_scores.append((improvement, call, idx))
-                    break  # vi trenger bare én vehicle med begge forekomster
-
-        if not call_scores:
-            break  # Ingen igjen å fjerne
-
-        # Velg den callen som gir størst forbedring
-        call_scores.sort(reverse=True)
-        _, best_call, best_vehicle_idx = call_scores[0]
-
-        # Fjern best_call fra det riktige kjøretøyet
-        vehicles[best_vehicle_idx] = [c for c in vehicles[best_vehicle_idx] if c != best_call]
-        removed_calls.append(best_call)
-
-    final_solution = combine_vehicles(vehicles)
-    return final_solution, removed_calls
 
 def remove_costly(solution, problem, min_percent, max_percent):
     """
@@ -459,13 +443,54 @@ def remove_costly(solution, problem, min_percent, max_percent):
 
     return reduced_solution, removed_calls
 
+#fungerer ikke
+def greedy1(solution, problem, chosen_calls):
+    """
+    Greedy reinsert each of the calls removed earlier into the best possible position
+    in a compatible vehicle. If not feasible, place it in the dummy vehicle.
+    """
+    new_solution = solution
+    vehicles = split_into_vehicles(new_solution)
+    dummy_vehicle_index = len(vehicles) - 1
+    dummy_vehicle = vehicles[dummy_vehicle_index]
+
+    for chosen_call in chosen_calls:
+        best_cost = float('inf')
+        best_vehicle = None
+        best_vehicle_idx = -1
+        compatible_vehicles = [
+            (v_idx, v) for v_idx, v in enumerate(vehicles[:dummy_vehicle_index])
+            if problem['VesselCargo'][v_idx][chosen_call - 1]
+        ]
+
+        for v_idx, to_vehicle in compatible_vehicles:
+
+            for i in range(len(to_vehicle) + 1):
+                for j in range(i, len(to_vehicle) + 1):
+                    temp_vehicle = to_vehicle[:i] + [chosen_call] + to_vehicle[i:j] + [chosen_call] + to_vehicle[j:]
+                    if check_vehicle_feasibility(temp_vehicle, v_idx, problem):
+                        candidate_cost = cost_vehicle_function(temp_vehicle, problem, v_idx)
+
+                        if candidate_cost < best_cost:
+                            best_cost = candidate_cost
+                            best_vehicle = temp_vehicle
+                            best_vehicle_idx = v_idx
+
+        if best_vehicle:    
+            vehicles[best_vehicle_idx] = best_vehicle   
+        else:
+            dummy_vehicle += [chosen_call, chosen_call]
+            vehicles[dummy_vehicle_index] = dummy_vehicle
+
+    return combine_vehicles(vehicles)
+
 #Insertion
 def greedy(solution, problem, chosen_calls):
     """
     Greedy reinsert each of the calls removed earlier into the best possible position
     in a compatible vehicle. If not feasible, place it in the dummy vehicle.
     """
-    new_solution = solution.copy()
+    new_solution = solution
     vehicles = split_into_vehicles(new_solution)
     dummy_vehicle_index = len(vehicles) - 1
     dummy_vehicle = vehicles[dummy_vehicle_index]
@@ -514,12 +539,12 @@ def k_regret(solution, problem, chosen_calls, k):
     Returns:
         list: New solution after applying the K-regret heuristic
     """
-    new_solution = solution.copy()
+    new_solution = solution
     vehicles = split_into_vehicles(new_solution)
     dummy_vehicle_index = len(vehicles) - 1
     dummy_vehicle = vehicles[dummy_vehicle_index]
 
-    unplaced_calls = chosen_calls.copy()
+    unplaced_calls = chosen_calls
 
     while unplaced_calls:
         insertions_by_call = {}
@@ -540,8 +565,9 @@ def k_regret(solution, problem, chosen_calls, k):
                         if check_vehicle_feasibility(temp_vehicle, v_idx, problem):
                             temp_vehicles = [v.copy() for v in vehicles]
                             temp_vehicles[v_idx] = temp_vehicle
-                            candidate_solution = combine_vehicles(temp_vehicles)
-                            candidate_cost = cost_function(candidate_solution, problem)
+                            candidate_cost = cost_vehicle_function(temp_vehicle, problem, v_idx)
+                            # candidate_solution = combine_vehicles(temp_vehicles)
+                            # candidate_cost = cost_function(candidate_solution, problem)
                             insertions.append((candidate_cost, v_idx, i, j))
 
             insertions.sort()
@@ -606,6 +632,13 @@ def k_regret(solution, problem, chosen_calls, k):
     return final_solution
 
 #Greedy
+def remove_mini(solution, problem):
+    """
+    Remove a small number of calls and then reinsert them using a greedy approach.
+    """
+    new_solution, chosen_calls = remove_calls(solution, problem, 0, 5)
+    return greedy(new_solution, problem, chosen_calls)
+
 def remove_small(solution, problem):
   
     """
@@ -613,7 +646,7 @@ def remove_small(solution, problem):
     of one compatible vehicle (or dummy if none are valid).
     """
     #print(f"Solution before remove small: {solution}")
-    temp_sol, chosen_calls = remove_calls(solution, problem, 5, 10)
+    temp_sol, chosen_calls = remove_calls(solution, problem, 0, 10)
     repaired_solution = greedy(temp_sol, problem, chosen_calls)
     #print(f"Solution after remove small: {repaired_solution}")
     return repaired_solution
@@ -643,7 +676,7 @@ def remove_random(solution, problem):
     """
     Remove a random number of calls and then reinsert them using a greedy approach.
     """
-    new_solution, chosen_calls = remove_calls(solution, problem, 5, 50)
+    new_solution, chosen_calls = remove_calls(solution, problem, LOWER_BOUND, 50)
     return greedy(new_solution, problem, chosen_calls)
 
 #regret
@@ -661,7 +694,7 @@ def remove_large_regret(solution, problem):
     return k_regret(temp_sol, problem, chosen_calls, 2)
 
 def remove_random_regret(solution, problem):
-    temp_sol, chosen_calls = remove_calls(solution, problem, 5, 50)
+    temp_sol, chosen_calls = remove_calls(solution, problem, LOWER_BOUND, UPPER_BOUND)
     return k_regret(temp_sol, problem, chosen_calls, 2)
 
 #costly
@@ -690,11 +723,11 @@ def costly_random(solution, problem):
     """
     Remove a large number of calls and then reinsert them using the costly method.
     """
-    new_solution, chosen_calls = remove_costly(solution, problem, 5, 50)
+    new_solution, chosen_calls = remove_costly(solution, problem, LOWER_BOUND, UPPER_BOUND)
     return greedy(new_solution, problem, chosen_calls)
 
 #costly_regret
-#ikke i bruk enda
+
 
 def costly_small_regret(solution, problem):
     """
@@ -717,6 +750,12 @@ def costly_large_regret(solution, problem):
     new_solution, chosen_calls = remove_costly(solution, problem, 25, 50)
     return k_regret(new_solution, problem, chosen_calls, 2)
 
+def costly_random_regret(solution, problem):
+    """
+    Remove a random number of calls and then reinsert them using the costly method with regret.
+    """
+    new_solution, chosen_calls = remove_costly(solution, problem, LOWER_BOUND, UPPER_BOUND)
+    return k_regret(new_solution, problem, chosen_calls, 2)
 
 
 def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
@@ -724,11 +763,12 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
 
     # Parameters
     max_iterations = 10000
-    escape_condition = 500
+    escape_condition = 1000
     score_update_interval = 100
 
     iteration = 0
     iterations_since_best = 0
+    last_escape_iteration = 0
     escape_intensity = 0
     best_iteration = 0
 
@@ -747,15 +787,19 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         remove_medium,
         remove_large,
         remove_all,
-        # remove_random,
-        remove_small_regret,
-        remove_medium_regret,
-        remove_large_regret,
-        # remove_random_regret,
-        costly_small,
-        costly_medium,
-        costly_large,
-        # costly_random
+        remove_random,
+        # remove_small_regret,
+        # remove_medium_regret,
+        # remove_large_regret,
+        remove_random_regret,
+        # costly_small,
+        #costly_medium,
+        # costly_large,
+        costly_random,
+        #costly_small_regret,
+        #costly_medium_regret,
+        #costly_large_regret,
+        #costly_random_regret
     ]
     
     operator_names = [op.__name__ for op in operators]
@@ -765,7 +809,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
 
     #Plotting
     operator_scores_history = {name: [] for name in operator_names}
-    operator_improvements = [0 for _ in range(num_operators)]   
+    #operator_improvements = [0 for _ in range(num_operators)]   
     operator_deltas = {name: [] for name in operator_names}
     operator_delta_iters = {name: [] for name in operator_names}
     
@@ -777,12 +821,13 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         if iteration % 1000 == 0:
             print(f"Iteration {iteration}: Current cost: {current_cost}, Best cost: {best_cost}")
         #Escape
-        if iterations_since_best > escape_condition :
+        if iterations_since_best > escape_condition:
             escape_intensity += 1
+            last_escape_iteration = iteration
             print(f"Iteration {iteration}: Escape triggered")
             while True:
                 #escape_solution = escape(current_solution, problem, iterations_since_best)
-                escape_solution = escape1(current_solution, problem, iterations_since_best, escape_intensity)
+                escape_solution = escape(current_solution, problem)
                 feasible, _ = feasibility_check(escape_solution, problem)
                 if feasible:
                     break
@@ -797,13 +842,14 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
 
 
         # Velg operatør og anvend den på løsningen
-        new_solution = operators[selected_operator](current_solution.copy(), problem)
+        new_solution = operators[selected_operator](current_solution, problem)
         new_cost = cost_function(new_solution, problem)
         feasible, _ = feasibility_check(new_solution, problem)
 
         if feasible:
             #operator_name = operator_names[selected_operator]
-            delta = 0.2 * ((max_iterations - iteration) / max_iterations) * best_cost
+            #delta = 0.2 * ((max_iterations - iteration) / max_iterations) * best_cost
+            delta = 0.2 * ((max_iterations - iteration) / max_iterations - last_escape_iteration) * best_cost
             accepted = False
             delta_cost = new_cost - current_cost
 
@@ -831,28 +877,19 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
                 accepted = True
                 operator_scores_raw[selected_operator] += 2 #New accepted solution
                 acceptance_iter_history.append(iteration)
+                iterations_since_best = 0
 
             if accepted: #Trenger jeg kun å gi score til de unike som er akseptert? eller også unike som ikke blir akseptert? de tas jo ikke med videre
                 if is_unique:
                     operator_scores_raw[selected_operator] +=1  # Unique solution
                     seen_solutions.add(solution_id)
-
+            
                 operator_deltas[operator_name].append(delta_cost) # er dette riktig måte å plotte score for hver operatør?
                 operator_delta_iters[operator_name].append(iteration)
 
         iterations_since_best += 1
         iteration += 1
         cost_history.append(best_cost)
-
-    
-
-        # if iteration % score_update_interval == 0:
-        #     for i in range(num_operators):
-        #         operator_scores[i] += operator_improvements[i]
-        #     normalize_scores(operator_scores)
-        #     for i, name in enumerate(operator_names):
-        #         operator_scores_history[name].append(operator_scores[i])
-        #     operator_improvements = [0 for _ in range(num_operators)]
 
         #Operator score update
         if iteration % score_update_interval == 0:
@@ -874,7 +911,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
         best_iteration
     )               
 
-def escape1(current_solution, problem, iterations_since_best, escape_intensity):
+def escape(current_solution, problem):
     """  
     Args:
         current_solution: Nåværende løsning
@@ -885,37 +922,13 @@ def escape1(current_solution, problem, iterations_since_best, escape_intensity):
         Ny løsning etter unnslupping
     """
 
-    escape_solution = current_solution.copy()
-    
-    intensity = min(escape_intensity / 10, 1.0)
+    escape_solution = current_solution
 
-    
-    mild_escapes = [remove_small]
-    medium_escapes = [remove_medium]
-    strong_escapes = [remove_medium_regret] #?????
-
-    if escape_intensity < 0.3:
-        escape_methods = mild_escapes
-    elif escape_intensity < 0.7:
-        escape_methods = mild_escapes + medium_escapes
-    else:
-        escape_methods = mild_escapes + medium_escapes + strong_escapes
-
-    weights = []
-    for method in escape_methods:
-        if method in mild_escapes:
-            weights.append(1.0)
-        elif method in medium_escapes:
-            weights.append(1.0 + 2 * intensity)
-        else: 
-            weights.append(1.0 + 4 * intensity)
-
-    num_escapes = int(3 + intensity * 35)
+    num_escapes = 15
     successful_escapes = 0
     
     for i in range(num_escapes):
-        method = remove_small
-        proposed_solution = method(escape_solution, problem)
+        proposed_solution = remove_mini(escape_solution, problem)
         feasible, _ = feasibility_check(proposed_solution, problem)
 
         if feasible:
@@ -928,7 +941,6 @@ def escape1(current_solution, problem, iterations_since_best, escape_intensity):
             escape_solution = fallback_solution
     
     return escape_solution
-
 
 def select_heuristic(operator_scores, iteration, max_iterations):
     """
