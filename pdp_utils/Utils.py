@@ -727,8 +727,6 @@ def costly_random(solution, problem):
     return greedy(new_solution, problem, chosen_calls)
 
 #costly_regret
-
-
 def costly_small_regret(solution, problem):
     """
     Remove a small number of calls and then reinsert them using the costly method with regret.
