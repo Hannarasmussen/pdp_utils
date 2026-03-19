@@ -112,11 +112,11 @@ def report_final_objectives(objective_values_per_instance):
         print(f"Final objectives for {instance}: {values}")
 
 def main():
-    test_instances = [  #'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt',
+    test_instances = [  'pdp_utils/data/pd_problem/Call_7_Vehicle_3.txt',
                         #'pdp_utils/data/pd_problem/Call_18_Vehicle_5.txt',
                         #'pdp_utils/data/pd_problem/Call_35_Vehicle_7.txt',
                         #'pdp_utils/data/pd_problem/Call_80_Vehicle_20.txt',
-                        'pdp_utils/data/pd_problem/Call_130_Vehicle_40.txt'
+                        #'pdp_utils/data/pd_problem/Call_130_Vehicle_40.txt'
                         ]
     num_runs = 1
     results = {}

@@ -867,6 +867,7 @@ def General_Adaptive_Metahuristics_Framework(problem, initial_solution):
                 accepted = True
                 operator_scores_raw[selected_operator] += 4 # New best solution
                 print(f"New best solution found with cost {best_cost}")
+                print(f"New best solution: {best_solution}")
 
             #New cost
             elif new_cost < best_cost + delta:
